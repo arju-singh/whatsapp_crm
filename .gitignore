@@ -10,3 +10,6 @@ uploads/
 .claude/
 node_modules.nosync/
 node_modules
+.wwebjs_auth
+.wwebjs_cache
+*.nosync
