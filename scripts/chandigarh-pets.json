@@ -1,0 +1,452 @@
+[
+  {
+    "S.No": 1,
+    "Name": "Pet's Mart Multi Speciality 24x7 Pet Hospital And Vet Lab by Dr.Kochar",
+    "Phone Number": "+91 93177 11155",
+    "Location/Address": "1155, Sector 21B, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Hospital/Clinic",
+    "Hours": "Open 24 hours",
+    "Rating": "4.4★"
+  },
+  {
+    "S.No": 2,
+    "Name": "Petvet24 Veterinary Clinic",
+    "Phone Number": "+91 70838 65773",
+    "Location/Address": "SCO-140, Sector 24D, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Veterinary Clinic",
+    "Hours": "9:00 AM - 9:00 PM",
+    "Rating": "4.2★"
+  },
+  {
+    "S.No": 3,
+    "Name": "Pet's Mart Multi-Speciality Pet Hospital, Panchkula",
+    "Phone Number": "+91 99151 10604",
+    "Location/Address": "H.B. 375, Sector 21, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Hospital/Clinic",
+    "Hours": "Open 24 hours",
+    "Rating": "4.8★"
+  },
+  {
+    "S.No": 4,
+    "Name": "Zigly",
+    "Phone Number": "+91 8071 936 823",
+    "Location/Address": "SCO 341-342, Sector 35, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Clinic",
+    "Hours": "Open 24 hours",
+    "Rating": "4.6★"
+  },
+  {
+    "S.No": 5,
+    "Name": "Pet Smile - Clinic & Grooming",
+    "Phone Number": "+91 99880 10911",
+    "Location/Address": "Booth 247, Sector 37C, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Clinic/Grooming",
+    "Hours": "Open 24 hours",
+    "Rating": "4.6★"
+  },
+  {
+    "S.No": 6,
+    "Name": "LakeSyde Veterinary Clinic",
+    "Phone Number": "+91 98729 87235",
+    "Location/Address": "Shop 106, Sector 7-C, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Veterinary Clinic",
+    "Hours": "10:30 AM - 8:00 PM",
+    "Rating": "4.1★"
+  },
+  {
+    "S.No": 7,
+    "Name": "Zigly Pet",
+    "Phone Number": "+91 8071 936 814",
+    "Location/Address": "SCO-15, Sector 9, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Clinic",
+    "Hours": "10:00 AM - 9:00 PM",
+    "Rating": "4.6★"
+  },
+  {
+    "S.No": 8,
+    "Name": "Anil's 22 The Pet Shop",
+    "Phone Number": "Not Available",
+    "Location/Address": "33, Sector 22C, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store",
+    "Hours": "10:00 AM - 9:00 PM",
+    "Rating": "4.1★"
+  },
+  {
+    "S.No": 9,
+    "Name": "My Pets Mart - Best Pet Shop and Pet Groomers",
+    "Phone Number": "+91 95010 10960",
+    "Location/Address": "Bayshop, Sector 21C, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Grooming",
+    "Hours": "9:30 AM - 8:30 PM",
+    "Rating": "4.9★"
+  },
+  {
+    "S.No": 10,
+    "Name": "Heads Up For Tails Pet Store & Spa",
+    "Phone Number": "+91 91672 10426",
+    "Location/Address": "SCO 1104-05, Sector 22B, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Spa",
+    "Hours": "9:00 AM - 9:30 PM",
+    "Rating": "4.7★"
+  },
+  {
+    "S.No": 11,
+    "Name": "Ramal's Pet Mall",
+    "Phone Number": "+91 82880 04545",
+    "Location/Address": "SCO 202, Sector 24D, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store",
+    "Hours": "9:00 AM - 8:30 PM",
+    "Rating": "4.4★"
+  },
+  {
+    "S.No": 12,
+    "Name": "DOG PETS BY",
+    "Phone Number": "+91 81465 59743",
+    "Location/Address": "Kajheri, Sector 52, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Shop",
+    "Hours": "9:00 AM - 9:00 PM",
+    "Rating": "4.7★"
+  },
+  {
+    "S.No": 13,
+    "Name": "ANIL'S 22 - THE PET SHOP",
+    "Phone Number": "+91 98888 81632",
+    "Location/Address": "Shop 400-401, Sector 32D, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Grooming",
+    "Hours": "10:00 AM - 9:00 PM",
+    "Rating": "4.4★"
+  },
+  {
+    "S.No": 14,
+    "Name": "All Pets Stores n Farm",
+    "Phone Number": "+91 98144 89922",
+    "Location/Address": "Shop 178, Sector 59, Mohali",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Clinic",
+    "Hours": "9:30 AM - 9:00 PM",
+    "Rating": "4.2★"
+  },
+  {
+    "S.No": 15,
+    "Name": "ALL PET AND FISHES AQUARIUM",
+    "Phone Number": "+91 98154 20617",
+    "Location/Address": "Shop 23, Sector 52, Kajheri, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Aquarium",
+    "Hours": "9:00 AM - 9:00 PM",
+    "Rating": "4.7★"
+  },
+  {
+    "S.No": 16,
+    "Name": "The Pet Point",
+    "Phone Number": "+91 99582 00148",
+    "Location/Address": "SCO 296, Sector 35D, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Grooming",
+    "Hours": "10:30 AM - 9:00 PM",
+    "Rating": "4.7★"
+  },
+  {
+    "S.No": 17,
+    "Name": "Regal Aquarium & Fish Wholesale Pet World",
+    "Phone Number": "+91 98889 99418",
+    "Location/Address": "SCO 72, Sector 31-C, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store/Aquarium",
+    "Hours": "10:00 AM - 10:00 PM",
+    "Rating": "4.4★"
+  },
+  {
+    "S.No": 18,
+    "Name": "Government Pet Hospital",
+    "Phone Number": "Not Available",
+    "Location/Address": "Sector 22D, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Government Clinic",
+    "Hours": "9:00 AM - 3:00 PM",
+    "Rating": "4.3★"
+  },
+  {
+    "S.No": 19,
+    "Name": "Vivek gautam pets shop",
+    "Phone Number": "+91 97002 98008",
+    "Location/Address": "Pipliwala Town, Adarsh Nagar, Sector 13, Chandigarh",
+    "City": "Chandigarh",
+    "Type": "Pet Store",
+    "Hours": "Open 24 hours",
+    "Rating": "4.7★"
+  },
+  {
+    "S.No": 20,
+    "Name": "12 West Pet Clinic n Surgery",
+    "Phone Number": "+91 80002 00070",
+    "Location/Address": "Khudda Lahora, Chandigarh",
+    "City": "WTC",
+    "Type": "Pet Clinic/Hospital",
+    "Hours": "Open 24 hours",
+    "Rating": "3.5★"
+  },
+  {
+    "S.No": 21,
+    "Name": "Pet Hospital -",
+    "Phone Number": "+91 172 460 0564",
+    "Location/Address": "House 1329, Sector 34C, Chandigarh",
+    "City": "WTC",
+    "Type": "Veterinary Clinic",
+    "Hours": "9:00 AM - 8:00 PM",
+    "Rating": "3.5★"
+  },
+  {
+    "S.No": 22,
+    "Name": "Vet Station",
+    "Phone Number": "+91 80548 78330",
+    "Location/Address": "SCO 250, Sector 44D, Chandigarh",
+    "City": "WTC",
+    "Type": "Veterinary Clinic",
+    "Hours": "10:00 AM - 8:00 PM",
+    "Rating": "3.9★"
+  },
+  {
+    "S.No": 23,
+    "Name": "PetsTree",
+    "Phone Number": "+91 81481 50816",
+    "Location/Address": "Shop 306, Phase 4, Sector 59, Sahibzada Ajit Singh Nagar",
+    "City": "WTC",
+    "Type": "Pet Store/Boarding",
+    "Hours": "Open 24 hours",
+    "Rating": "4.8★"
+  },
+  {
+    "S.No": 24,
+    "Name": "The Small Animal Pet Hospital",
+    "Phone Number": "+91 98789 87869",
+    "Location/Address": "SCO 1034A, Airport Rd, Sector 125, Sunny Enclave, Kharar",
+    "City": "Kharar",
+    "Type": "Pet Hospital/Clinic",
+    "Hours": "Open 24 hours",
+    "Rating": "4.3★"
+  },
+  {
+    "S.No": 25,
+    "Name": "City Veterinary Hospital",
+    "Phone Number": "+91 95017 05427",
+    "Location/Address": "4331, Sector 125, Sunny Enclave, Kharar",
+    "City": "Kharar",
+    "Type": "Veterinary Clinic",
+    "Hours": "8:00 AM - 10:00 PM",
+    "Rating": "4.2★"
+  },
+  {
+    "S.No": 26,
+    "Name": "Greencoat Vets Pet Hospital",
+    "Phone Number": "+91 89733 40006",
+    "Location/Address": "SCO 9, Sector 123, New Sunny Enclave, Kharar",
+    "City": "Kharar",
+    "Type": "Pet Hospital/Clinic",
+    "Hours": "Open 24 hours",
+    "Rating": "4.7★"
+  },
+  {
+    "S.No": 27,
+    "Name": "The Companion Animal Clinic",
+    "Phone Number": "+91 62800 78885",
+    "Location/Address": "SCO 9, Sector 127, Shivalik City, Kharar",
+    "City": "Kharar",
+    "Type": "Pet Clinic/Store",
+    "Hours": "9:00 AM - 8:00 PM",
+    "Rating": "4.8★"
+  },
+  {
+    "S.No": 28,
+    "Name": "Dr Virks Pet Clinic",
+    "Phone Number": "+91 98141 56473",
+    "Location/Address": "Janta Market, Shop 5A, Jhungian Rd, Kharar",
+    "City": "Kharar",
+    "Type": "Veterinary Clinic",
+    "Hours": "10:00 AM - 8:00 PM",
+    "Rating": "4.6★"
+  },
+  {
+    "S.No": 29,
+    "Name": "The Small Animal",
+    "Phone Number": "+91 76967 67885",
+    "Location/Address": "SCO 2, Friends Complex, Arya College Rd, Sector 127, Kharar",
+    "City": "Kharar",
+    "Type": "Pet Store/Clinic",
+    "Hours": "9:00 AM - 8:30 PM",
+    "Rating": "4.2★"
+  },
+  {
+    "S.No": 30,
+    "Name": "Zorawer's Vet Pet Care Centres",
+    "Phone Number": "+91 91155 56590",
+    "Location/Address": "43, NRI Enclave, Jhungian Rd, Janta Nagar, Kharar",
+    "City": "Kharar",
+    "Type": "Veterinary Clinic",
+    "Hours": "8:00 AM - 1:00 PM, 5:00 - 8:00 PM",
+    "Rating": "5.0★"
+  },
+  {
+    "S.No": 31,
+    "Name": "Tarun's Pet Clinic",
+    "Phone Number": "Not Available",
+    "Location/Address": "SCO 35, Greenwood Residency St, Sunny Enclave, Kharar",
+    "City": "Kharar",
+    "Type": "Veterinary Clinic",
+    "Hours": "9:00 AM - 8:00 PM",
+    "Rating": "5.0★"
+  },
+  {
+    "S.No": 32,
+    "Name": "The Pet Store Kharar",
+    "Phone Number": "+91 79017 45159",
+    "Location/Address": "SCO 07, Nijjer Rd, Sector 126, Model Town, Kharar",
+    "City": "Kharar",
+    "Type": "Pet Store/Grooming/Boarding",
+    "Hours": "9:00 AM - 9:00 PM",
+    "Rating": "4.6★"
+  },
+  {
+    "S.No": 33,
+    "Name": "Pets & Family",
+    "Phone Number": "+91 96467 30043",
+    "Location/Address": "Shop 4, Opp Dussehra Ground, Pathran Wala Khoo, Kharar",
+    "City": "Kharar",
+    "Type": "Pet Store/Grooming",
+    "Hours": "9:00 AM - 9:30 PM",
+    "Rating": "4.7★"
+  },
+  {
+    "S.No": 34,
+    "Name": "Dukhnivaran Pet Clinic",
+    "Phone Number": "+91 98772 04116",
+    "Location/Address": "House 46, Randhawa Rd, Deep Nagar, Sector 10, Kharar",
+    "City": "Kharar",
+    "Type": "Veterinary Clinic",
+    "Hours": "As per availability",
+    "Rating": "5.0★"
+  },
+  {
+    "S.No": 35,
+    "Name": "The Raj Veterinary Clinics",
+    "Phone Number": "Not Available",
+    "Location/Address": "SCO 81-B, 1st Floor, City Heart Market, Janta Nagar, Kharar",
+    "City": "Kharar",
+    "Type": "Veterinary Clinic",
+    "Hours": "Open 24 hours",
+    "Rating": "3.7★"
+  },
+  {
+    "S.No": 36,
+    "Name": "Civil Veterinary Hospital",
+    "Phone Number": "Not Available",
+    "Location/Address": "Main Bazar, Kharar",
+    "City": "Kharar",
+    "Type": "Government Clinic",
+    "Hours": "9:00 AM - 2:00 PM",
+    "Rating": "3.9★"
+  },
+  {
+    "S.No": 37,
+    "Name": "GREENCOAT VETS",
+    "Phone Number": "+91 96085 50006",
+    "Location/Address": "SCO 20, Industrial Area, Sector 9, Mohali",
+    "City": "Mohali",
+    "Type": "Pet Hospital/Clinic",
+    "Hours": "Open 24 hours",
+    "Rating": "4.8★"
+  },
+  {
+    "S.No": 38,
+    "Name": "Dr (Capt) Growar's The Healing Touch Pet Clinic",
+    "Phone Number": "+91 78141 10784",
+    "Location/Address": "SCF 42, Sector 54, Mohali",
+    "City": "Mohali",
+    "Type": "Veterinary Clinic",
+    "Hours": "10:00 AM - 7:30 PM",
+    "Rating": "4.1★"
+  },
+  {
+    "S.No": 39,
+    "Name": "Pet Animal Medical Centre",
+    "Phone Number": "+91 172 256 2055",
+    "Location/Address": "MVRC+264, Sector 3, Panchkula",
+    "City": "Mohali",
+    "Type": "Veterinary Clinic",
+    "Hours": "8:00 AM - 8:00 PM",
+    "Rating": "4.3★"
+  },
+  {
+    "S.No": 40,
+    "Name": "Pawsitive Steps Pet Care",
+    "Phone Number": "+91 87259 96416",
+    "Location/Address": "Phase 11, Sector 65, Mohali",
+    "City": "Mohali",
+    "Type": "Veterinary Clinic",
+    "Hours": "11:00 AM - 9:00 PM",
+    "Rating": "4.9★"
+  },
+  {
+    "S.No": 41,
+    "Name": "Evergreen Veterinary Hospital",
+    "Phone Number": "+91 96463 33956",
+    "Location/Address": "New Chandigarh, Punjab",
+    "City": "Mohali",
+    "Type": "Veterinary Hospital",
+    "Hours": "9:00 AM - 8:00 PM",
+    "Rating": "4.8★"
+  },
+  {
+    "S.No": 42,
+    "Name": "PrimeVets Multi-speciality Hospital",
+    "Phone Number": "+91 98772 20053",
+    "Location/Address": "SCO 4, Sector 78, Mohali",
+    "City": "Mohali",
+    "Type": "Veterinary Hospital",
+    "Hours": "Open 24 hours",
+    "Rating": "5.0★"
+  },
+  {
+    "S.No": 43,
+    "Name": "Dr. Bedi's Pet Hospital",
+    "Phone Number": "+91 80572 21022",
+    "Location/Address": "TDI City, Sector 111, Mohali",
+    "City": "Mohali",
+    "Type": "Veterinary Hospital",
+    "Hours": "Open 24 hours",
+    "Rating": "4.6★"
+  },
+  {
+    "S.No": 44,
+    "Name": "Mohali Pet World & Fish Aquarium",
+    "Phone Number": "+91 99882 17694",
+    "Location/Address": "Shop 6, Franco Hotel Rd, Phase 1, Mohali Village, Mohali",
+    "City": "Mohali",
+    "Type": "Pet Store/Aquarium",
+    "Hours": "9:00 AM - 10:00 PM",
+    "Rating": "4.0★"
+  },
+  {
+    "S.No": 45,
+    "Name": "Society for the Prevention of Cruelty to Animals",
+    "Phone Number": "+91 172 269 6450",
+    "Location/Address": "Motor Market, Sector 38 West, Chandigarh",
+    "City": "Mohali",
+    "Type": "Animal Shelter/Clinic",
+    "Hours": "8:00 AM - 12:00 AM",
+    "Rating": "3.7★"
+  }
+]

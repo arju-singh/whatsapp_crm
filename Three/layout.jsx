@@ -1,0 +1,163 @@
+// =============================================================
+// Shared layout: Sidebar, Topbar, Avatar, MiniBars, Sparkline
+// =============================================================
+
+const Avatar = ({ name, color, size, src }) => {
+  const cls = 'avatar' + (size ? ' ' + size : '');
+  const bg = color || '#7A7670';
+  return <div className={cls} style={{ background: bg }}>{name}</div>;
+};
+
+const Sidebar = ({ route, setRoute, openCmd }) => {
+  const items = [
+    { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { id: 'inbox', label: 'Inbox', icon: 'inbox', badge: 12 },
+  ];
+  const work = [
+    { id: 'contacts', label: 'Contacts', icon: 'people' },
+    { id: 'companies', label: 'Companies', icon: 'building' },
+    { id: 'deals', label: 'Pipeline', icon: 'pipeline', badge: 14 },
+    { id: 'tasks', label: 'Tasks', icon: 'check-list', badge: 7 },
+    { id: 'calendar', label: 'Calendar', icon: 'calendar' },
+  ];
+  const grow = [
+    { id: 'reports', label: 'Reports', icon: 'chart' },
+    { id: 'campaigns', label: 'Campaigns', icon: 'megaphone' },
+    { id: 'tickets', label: 'Tickets', icon: 'ticket', badge: 4 },
+    { id: 'automations', label: 'Automations', icon: 'flow' },
+  ];
+  const sys = [
+    { id: 'team', label: 'Team', icon: 'team' },
+    { id: 'settings', label: 'Settings', icon: 'settings' },
+  ];
+  const NavGroup = ({ title, items }) => (
+    <>
+      <div className="nav-section">{title}</div>
+      {items.map(it => (
+        <div key={it.id} className={'nav-item' + (route === it.id ? ' active' : '')} onClick={() => setRoute(it.id)}>
+          <Icon name={it.icon} className="icon" />
+          <span className="label">{it.label}</span>
+          {it.badge && <span className="badge">{it.badge}</span>}
+        </div>
+      ))}
+    </>
+  );
+  return (
+    <aside className="sidebar">
+      <div className="brand">
+        <div className="brand-mark">3</div>
+        <div className="brand-name">Three<span className="accent">.</span></div>
+      </div>
+      <div className="workspace-switcher">
+        <div>
+          <div className="ws-name">Sloane &amp; Co.</div>
+          <div className="ws-meta">Sales · Pro plan</div>
+        </div>
+        <Icon name="caret-down" size={12} />
+      </div>
+      <nav className="nav">
+        {items.map(it => (
+          <div key={it.id} className={'nav-item' + (route === it.id ? ' active' : '')} onClick={() => setRoute(it.id)}>
+            <Icon name={it.icon} className="icon" />
+            <span className="label">{it.label}</span>
+            {it.badge && <span className="badge">{it.badge}</span>}
+          </div>
+        ))}
+        <NavGroup title="Workspace" items={work} />
+        <NavGroup title="Grow" items={grow} />
+        <NavGroup title="System" items={sys} />
+      </nav>
+      <div className="sidebar-footer">
+        <Avatar name="AS" color="#E07A5F" />
+        <div className="user-meta">
+          <div className="user-name trunc">Aria Sloane</div>
+          <div className="user-role trunc">AE — West Region</div>
+        </div>
+        <Icon name="caret-down" size={12} />
+      </div>
+    </aside>
+  );
+};
+
+const Topbar = ({ crumbs, openCmd, theme, setTheme, openAI, openNotif }) => {
+  return (
+    <header className="topbar">
+      <div className="crumbs">
+        {crumbs.map((c, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <span className="sep"><Icon name="caret-right" size={12} /></span>}
+            <span className={i === crumbs.length - 1 ? 'here' : ''}>{c}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="search" onClick={openCmd}>
+        <Icon name="search" className="icon" />
+        <span className="placeholder">Search contacts, deals, tickets…</span>
+        <span className="kbd">⌘K</span>
+      </div>
+      <div className="top-actions">
+        <button className="btn ghost sm" onClick={openAI}>
+          <span className="ai-mark"><Icon name="sparkle" size={10}/>AI</span>
+          Ask
+        </button>
+        <button className="icon-btn" data-tip="Theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="icon" />
+        </button>
+        <button className="icon-btn" data-tip="Notifications" onClick={openNotif}>
+          <Icon name="bell" className="icon" />
+          <span className="dot"></span>
+        </button>
+        <button className="btn primary sm"><Icon name="plus" size={12}/>New</button>
+      </div>
+    </header>
+  );
+};
+
+// Sparkline — generic
+const Sparkline = ({ data, w = 120, h = 32, stroke = 'currentColor', fill }) => {
+  if (!data || !data.length) return null;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const stepX = w / (data.length - 1);
+  const pts = data.map((d, i) => [i * stepX, h - ((d - min) / range) * (h - 4) - 2]);
+  const path = 'M' + pts.map(p => p.join(',')).join(' L ');
+  const area = path + ` L ${w},${h} L 0,${h} Z`;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+      {fill && <path d={area} fill={fill} opacity="0.15" />}
+      <path d={path} stroke={stroke} fill="none" strokeWidth="1.5" />
+    </svg>
+  );
+};
+
+const MiniBars = ({ data, w = 120, h = 32, color = 'currentColor' }) => {
+  const max = Math.max(...data, 1);
+  const bw = w / data.length - 2;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+      {data.map((d, i) => {
+        const bh = (d / max) * (h - 2);
+        return <rect key={i} x={i * (bw + 2)} y={h - bh} width={bw} height={bh} rx="1" fill={color} />;
+      })}
+    </svg>
+  );
+};
+
+const Donut = ({ value, max = 100, size = 60, stroke = 6, color = '#E07A5F', label }) => {
+  const r = size/2 - stroke;
+  const c = 2 * Math.PI * r;
+  const pct = Math.min(1, value/max);
+  return (
+    <div style={{position:'relative', width: size, height: size}}>
+      <svg width={size} height={size}>
+        <circle cx={size/2} cy={size/2} r={r} stroke="rgba(26,26,26,0.08)" strokeWidth={stroke} fill="none"/>
+        <circle cx={size/2} cy={size/2} r={r} stroke={color} strokeWidth={stroke} fill="none"
+          strokeDasharray={c} strokeDashoffset={c * (1-pct)} strokeLinecap="round"
+          transform={`rotate(-90 ${size/2} ${size/2})`} />
+      </svg>
+      {label && <div style={{position:'absolute', inset:0, display:'grid', placeItems:'center', fontSize: size/4.5, fontWeight: 600}}>{label}</div>}
+    </div>
+  );
+};
+
+Object.assign(window, { Avatar, Sidebar, Topbar, Sparkline, MiniBars, Donut });
