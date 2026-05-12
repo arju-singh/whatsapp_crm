@@ -8,3 +8,5 @@ data/
 .env
 uploads/
 .claude/
+node_modules.nosync/
+node_modules
