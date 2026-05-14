@@ -1,5 +1,5 @@
 // =============================================================
-// Three CRM — main app shell
+// Arju_CRM — main app shell
 // =============================================================
 
 const App = () => {
@@ -70,7 +70,7 @@ const App = () => {
   if (!ready) {
     return (
       <div style={{ display: 'grid', placeItems: 'center', height: '100vh', color: 'var(--muted)', background: 'var(--paper)' }}>
-        <div className="serif" style={{ fontSize: 28 }}>Three<span style={{ color: 'var(--accent)' }}>.</span></div>
+        <div className="serif" style={{ fontSize: 28 }}>Arju_CRM<span style={{ color: 'var(--accent)' }}>.</span></div>
         <div style={{ marginTop: 8, fontSize: 12 }}>Loading workspace…</div>
       </div>
     );
@@ -134,7 +134,7 @@ const App = () => {
   const TweakRadio = window.TweakRadio;
 
   return (
-    <div className="app" data-screen-label={'Three CRM · ' + route}>
+    <div className="app" data-screen-label={'Arju_CRM · ' + route}>
       <Sidebar route={route} setRoute={setRoute} openCmd={() => setCmd(true)} openWaQr={() => window.openWaQr && window.openWaQr()} />
       <Topbar
         crumbs={crumbsMap[route] || ['Arju_CRM']}

@@ -7,6 +7,19 @@
 const Avatar = ({ name, color, size, src }) => {
   const cls = 'avatar' + (size ? ' ' + size : '');
   const bg = color || '#7A7670';
+  const [broken, setBroken] = React.useState(false);
+  if (src && !broken) {
+    return (
+      <div className={cls} style={{ background: bg, overflow: 'hidden', padding: 0 }}>
+        <img
+          src={src}
+          alt={name || ''}
+          onError={() => setBroken(true)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      </div>
+    );
+  }
   return <div className={cls} style={{ background: bg }}>{name}</div>;
 };
 
@@ -67,8 +80,8 @@ const Sidebar = ({ route, setRoute, openCmd, openWaQr }) => {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark">3</div>
-        <div className="brand-name">Three<span className="accent">.</span></div>
+        <div className="brand-mark">A</div>
+        <div className="brand-name">Arju_CRM<span className="accent">.</span></div>
       </div>
       <div className="workspace-switcher">
         <div>

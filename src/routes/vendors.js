@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { parse } = require('csv-parse/sync');
+const XLSX = require('xlsx');
 const db = require('../db');
 
 let phoneLib;
@@ -37,7 +38,7 @@ function validatePhone(p) {
 }
 
 router.get('/', (req, res) => {
-  const { q, status, category, limit = 500, offset = 0 } = req.query;
+  const { q, status, category, limit = 1000000, offset = 0 } = req.query;
   const filters = [];
   const params = {};
   if (q) {
@@ -96,6 +97,72 @@ router.get('/stats/summary', (req, res) => {
     FROM vendors GROUP BY category ORDER BY c DESC
   `).all();
   res.json({ totals, byCategory });
+});
+
+const IMPORT_COLUMNS = ['name', 'phone', 'company', 'email', 'category', 'tags', 'notes', 'title', 'address', 'city', 'hours'];
+const TEMPLATE_SAMPLES = [
+  {
+    name: 'Acme Traders',
+    phone: '+91 98765 43210',
+    company: 'Acme Traders Pvt Ltd',
+    email: 'contact@acme.example',
+    category: 'wholesale',
+    tags: 'priority,reorder',
+    notes: 'Met at trade show — follow up next week',
+    title: 'Owner',
+    address: '12 MG Road',
+    city: 'Bengaluru',
+    hours: 'Mon–Sat 10:00–19:00',
+  },
+];
+
+router.get('/template.xlsx', (req, res) => {
+  const rows = [IMPORT_COLUMNS, ...TEMPLATE_SAMPLES.map((s) => IMPORT_COLUMNS.map((c) => s[c] || ''))];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = IMPORT_COLUMNS.map((c) => ({ wch: c === 'notes' || c === 'address' ? 28 : Math.max(c.length + 2, 14) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Vendors');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('content-disposition', 'attachment; filename="vendors-template.xlsx"');
+  res.send(buf);
+});
+
+router.get('/template.csv', (req, res) => {
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [IMPORT_COLUMNS.join(',')];
+  for (const s of TEMPLATE_SAMPLES) lines.push(IMPORT_COLUMNS.map((c) => esc(s[c] || '')).join(','));
+  res.setHeader('content-type', 'text/csv; charset=utf-8');
+  res.setHeader('content-disposition', 'attachment; filename="vendors-template.csv"');
+  res.send(lines.join('\n'));
+});
+
+router.get('/export.xlsx', (req, res) => {
+  const { q, status, category } = req.query;
+  const filters = [];
+  const params = {};
+  if (q) { filters.push('(name LIKE @q OR phone LIKE @q OR company LIKE @q OR email LIKE @q)'); params.q = `%${q}%`; }
+  if (status) { filters.push('status = @status'); params.status = status; }
+  if (category) { filters.push('category = @category'); params.category = category; }
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const rows = db.prepare(`SELECT * FROM vendors ${where} ORDER BY updated_at DESC`).all(params);
+  const cols = ['id', 'name', 'phone', 'company', 'email', 'category', 'tags', 'status', 'notes',
+    'title', 'address', 'city', 'hours',
+    'last_contacted_at', 'last_replied_at', 'total_sent', 'total_replied', 'created_at'];
+  const tsCols = new Set(['last_contacted_at', 'last_replied_at', 'created_at']);
+  const fmtTs = (v) => v ? new Date(v).toISOString() : '';
+  const data = [cols, ...rows.map((r) => cols.map((c) => tsCols.has(c) ? fmtTs(r[c]) : (r[c] == null ? '' : r[c])))];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Vendors');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('content-disposition', `attachment; filename="vendors-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+  res.send(buf);
 });
 
 router.get('/:id', (req, res) => {
@@ -167,15 +234,26 @@ router.delete('/:id', (req, res) => {
 
 router.post('/import', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file_required' });
+  const filename = (req.file.originalname || '').toLowerCase();
+  const isExcel = filename.endsWith('.xlsx') || filename.endsWith('.xls')
+    || req.file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    || req.file.mimetype === 'application/vnd.ms-excel';
   let records;
   try {
-    records = parse(req.file.buffer, { columns: true, skip_empty_lines: true, trim: true });
+    if (isExcel) {
+      const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = wb.SheetNames[0];
+      if (!sheetName) return res.status(400).json({ error: 'excel_no_sheets' });
+      records = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false });
+    } else {
+      records = parse(req.file.buffer, { columns: true, skip_empty_lines: true, trim: true });
+    }
   } catch (e) {
-    return res.status(400).json({ error: 'csv_parse_failed', detail: e.message });
+    return res.status(400).json({ error: isExcel ? 'excel_parse_failed' : 'csv_parse_failed', detail: e.message });
   }
   const insert = db.prepare(`
-    INSERT INTO vendors (name, phone, company, email, category, tags, notes)
-    VALUES (@name, @phone, @company, @email, @category, @tags, @notes)
+    INSERT INTO vendors (name, phone, company, email, category, tags, notes, title, address, city, hours)
+    VALUES (@name, @phone, @company, @email, @category, @tags, @notes, @title, @address, @city, @hours)
     ON CONFLICT(phone) DO UPDATE SET
       name = excluded.name,
       company = COALESCE(excluded.company, vendors.company),
@@ -183,24 +261,39 @@ router.post('/import', upload.single('file'), (req, res) => {
       category = COALESCE(excluded.category, vendors.category),
       tags = COALESCE(excluded.tags, vendors.tags),
       notes = COALESCE(excluded.notes, vendors.notes),
+      title = COALESCE(excluded.title, vendors.title),
+      address = COALESCE(excluded.address, vendors.address),
+      city = COALESCE(excluded.city, vendors.city),
+      hours = COALESCE(excluded.hours, vendors.hours),
       updated_at = strftime('%s','now') * 1000
   `);
+  const pick = (r, ...keys) => {
+    for (const k of keys) {
+      const v = r[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+    }
+    return null;
+  };
   const tx = db.transaction((rows) => {
     let inserted = 0, invalid = 0, missing = 0;
     for (const r of rows) {
-      const name = r.name || r.Name || r.full_name || r.contact;
-      const rawPhone = r.phone || r.Phone || r.mobile || r.Mobile;
+      const name = pick(r, 'name', 'Name', 'full_name', 'contact', 'Contact');
+      const rawPhone = pick(r, 'phone', 'Phone', 'mobile', 'Mobile');
       if (!rawPhone || !name) { missing++; continue; }
       const v = validatePhone(rawPhone);
       if (!v.ok) { invalid++; continue; }
       insert.run({
         name,
         phone: v.normalized,
-        company: r.company || r.Company || null,
-        email: r.email || r.Email || null,
-        category: r.category || r.Category || null,
-        tags: r.tags || r.Tags || null,
-        notes: r.notes || r.Notes || null,
+        company: pick(r, 'company', 'Company'),
+        email: pick(r, 'email', 'Email'),
+        category: pick(r, 'category', 'Category'),
+        tags: pick(r, 'tags', 'Tags'),
+        notes: pick(r, 'notes', 'Notes'),
+        title: pick(r, 'title', 'Title'),
+        address: pick(r, 'address', 'Address'),
+        city: pick(r, 'city', 'City'),
+        hours: pick(r, 'hours', 'Hours'),
       });
       inserted++;
     }
@@ -208,33 +301,6 @@ router.post('/import', upload.single('file'), (req, res) => {
   });
   const result = tx(records);
   res.json({ ...result, total: records.length });
-});
-
-router.get('/export.csv', (req, res) => {
-  const { q, status, category } = req.query;
-  const filters = [];
-  const params = {};
-  if (q) { filters.push('(name LIKE @q OR phone LIKE @q OR company LIKE @q OR email LIKE @q)'); params.q = `%${q}%`; }
-  if (status) { filters.push('status = @status'); params.status = status; }
-  if (category) { filters.push('category = @category'); params.category = category; }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-  const rows = db.prepare(`SELECT * FROM vendors ${where} ORDER BY updated_at DESC`).all(params);
-  const cols = ['id', 'name', 'phone', 'company', 'email', 'category', 'tags', 'status', 'notes',
-    'last_contacted_at', 'last_replied_at', 'total_sent', 'total_replied', 'created_at'];
-  const esc = (v) => {
-    if (v == null) return '';
-    const s = String(v);
-    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const fmtTs = (v) => v ? new Date(v).toISOString() : '';
-  const tsCols = new Set(['last_contacted_at', 'last_replied_at', 'created_at']);
-  const lines = [cols.join(',')];
-  for (const r of rows) {
-    lines.push(cols.map((c) => esc(tsCols.has(c) ? fmtTs(r[c]) : r[c])).join(','));
-  }
-  res.setHeader('content-type', 'text/csv; charset=utf-8');
-  res.setHeader('content-disposition', `attachment; filename="vendors-${new Date().toISOString().slice(0, 10)}.csv"`);
-  res.send(lines.join('\n'));
 });
 
 module.exports = router;

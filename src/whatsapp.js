@@ -381,14 +381,6 @@ async function sendOne(jobMessageId) {
     return;
   }
 
-  // Quiet hours — push to next sendable time
-  if (isQuietHour()) {
-    const next = nextSendableTime();
-    db.prepare(`UPDATE messages SET status='scheduled', scheduled_at=?, next_attempt_at=? WHERE id=?`)
-      .run(next, next, jobMessageId);
-    return;
-  }
-
   // Daily cap — push 30 min ahead and let scheduler retry
   if (sentTodayCount() >= settings.getInt('wa_daily_cap')) {
     const next = Date.now() + 30 * 60 * 1000;
@@ -511,6 +503,75 @@ async function importContacts({ onlySaved = true } = {}) {
   return { total: all.length, inserted, updated, skipped };
 }
 
+const AVATAR_DIR = path.join(__dirname, '..', 'data', 'avatars');
+if (!fs.existsSync(AVATAR_DIR)) fs.mkdirSync(AVATAR_DIR, { recursive: true });
+
+async function downloadAvatar(url, vendorId) {
+  if (!url || !/^https?:\/\//.test(url)) return null;
+  try {
+    const r = await fetch(url, { redirect: 'follow' });
+    if (!r.ok) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 200) return null; // suspicious — probably error blob
+    const fpath = path.join(AVATAR_DIR, `${vendorId}.jpg`);
+    fs.writeFileSync(fpath, buf);
+    return `/avatars/${vendorId}.jpg`;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function cacheRemoteAvatars({ limit = 5000 } = {}) {
+  const rows = db.prepare(`
+    SELECT id, profile_pic_url FROM vendors
+    WHERE profile_pic_url LIKE 'http%' LIMIT ?
+  `).all(limit);
+  const upd = db.prepare(`UPDATE vendors SET profile_pic_url = ?, updated_at = ? WHERE id = ?`);
+  let cached = 0, failed = 0;
+  for (const r of rows) {
+    const local = await downloadAvatar(r.profile_pic_url, r.id);
+    if (local) {
+      upd.run(local, Date.now(), r.id);
+      cached++;
+    } else {
+      failed++;
+    }
+  }
+  return { processed: rows.length, cached, failed };
+}
+
+async function enrichContacts({ limit = 1000, onlyMissing = true, delayMs = 250 } = {}) {
+  if (!state.ready) throw new Error('whatsapp_not_ready');
+  const where = onlyMissing ? 'WHERE enriched_at IS NULL' : '';
+  const targets = db.prepare(`SELECT id, phone FROM vendors ${where} ORDER BY id ASC LIMIT ?`).all(limit);
+  const upd = db.prepare(`
+    UPDATE vendors
+    SET profile_pic_url = ?, about_text = ?, is_business = ?, enriched_at = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  let enriched = 0, withPic = 0, withAbout = 0, errors = 0;
+  for (const t of targets) {
+    const jid = `${t.phone}@c.us`;
+    try {
+      const contact = await client.getContactById(jid).catch(() => null);
+      const remotePicUrl = contact ? await contact.getProfilePicUrl().catch(() => null) : null;
+      const localPath = remotePicUrl ? await downloadAvatar(remotePicUrl, t.id) : null;
+      const aboutObj = contact ? await contact.getAbout().catch(() => null) : null;
+      const aboutText = aboutObj && typeof aboutObj === 'object' ? (aboutObj.status || aboutObj.about || null) : aboutObj;
+      const isBiz = contact && (contact.isBusiness || contact.isEnterprise) ? 1 : 0;
+      const now = Date.now();
+      upd.run(localPath || remotePicUrl || null, aboutText || null, isBiz, now, now, t.id);
+      if (localPath || remotePicUrl) withPic++;
+      if (aboutText) withAbout++;
+      enriched++;
+    } catch (e) {
+      errors++;
+    }
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return { processed: targets.length, enriched, withPic, withAbout, errors };
+}
+
 module.exports = {
   init,
   client,
@@ -519,4 +580,6 @@ module.exports = {
   enqueueMessage,
   renderTemplate,
   importContacts,
+  enrichContacts,
+  cacheRemoteAvatars,
 };

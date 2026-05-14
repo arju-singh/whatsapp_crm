@@ -41,6 +41,9 @@ function adaptContact(v) {
     hours: v.hours || '',
     businessType: v.category || '',
     avatar: v.avatar || (v.name || '').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(),
+    profilePicUrl: v.profile_pic_url || null,
+    aboutText: v.about_text || '',
+    isBusiness: !!v.is_business,
     tags: typeof v.tags === 'string' && v.tags ? v.tags.split(',').map((t) => t.trim()).filter(Boolean) : (v.tags || []),
     lastTouch: v.last_replied_at || v.last_contacted_at
       ? new Date(v.last_replied_at || v.last_contacted_at).toISOString().slice(0, 10)

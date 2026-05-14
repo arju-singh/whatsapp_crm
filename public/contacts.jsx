@@ -100,10 +100,17 @@ const ContactRow = ({ c, onOpen, sno, isSelected, onSelectChange }) => {
   const avatarPrefix = (
     <div
       onClick={(e) => { e.stopPropagation(); onOpen(c); }}
-      style={{ flex: '0 0 auto', cursor: 'pointer' }}
+      style={{ flex: '0 0 auto', cursor: 'pointer', position: 'relative' }}
       title="Open details"
     >
-      <Avatar name={c.avatar} color={co.color} />
+      <Avatar name={c.avatar} color={co.color} src={c.profilePicUrl} />
+      {c.isBusiness && (
+        <span title="WhatsApp Business" style={{
+          position: 'absolute', bottom: -2, right: -2, width: 12, height: 12,
+          borderRadius: '50%', background: '#25D366', border: '2px solid var(--paper)',
+          boxShadow: '0 0 0 1px var(--rule)',
+        }} />
+      )}
     </div>
   );
 
@@ -177,6 +184,12 @@ const ContactRow = ({ c, onOpen, sno, isSelected, onSelectChange }) => {
         cellStyle={{ whiteSpace: 'nowrap' }}
         inputStyle={{ fontSize: 11, color: 'var(--ink-3)' }}
       />
+
+      <td style={{ maxWidth: 260, color: 'var(--ink-3)', fontSize: 11 }} title={c.aboutText || ''}>
+        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {c.aboutText || <span style={{ color: 'var(--muted)' }}>—</span>}
+        </div>
+      </td>
     </tr>
   );
 };
@@ -334,14 +347,17 @@ const Contacts = () => {
   const { ready } = useStore();
   const [q, setQ] = React.useState('');
   const [tag, setTag] = React.useState('all');
+  const [bizOnly, setBizOnly] = React.useState(false);
   const [open, setOpen] = React.useState(null);
   const [selected, setSelected] = React.useState(new Set());
   if (!ready) return null;
   const all = window.CONTACTS || [];
+  const bizCount = all.filter((c) => c.isBusiness).length;
   const allTags = Array.from(new Set(all.flatMap((c) => c.tags))).filter(Boolean).slice(0, 10);
   const filtered = all.filter((c) => {
-    if (q && !(c.name + ' ' + c.email + ' ' + c.title + ' ' + c.phone + ' ' + c.address + ' ' + c.city + ' ' + c.businessType).toLowerCase().includes(q.toLowerCase())) return false;
+    if (q && !(c.name + ' ' + c.email + ' ' + c.title + ' ' + c.phone + ' ' + c.address + ' ' + c.city + ' ' + c.businessType + ' ' + (c.aboutText || '')).toLowerCase().includes(q.toLowerCase())) return false;
     if (tag !== 'all' && !c.tags.includes(tag)) return false;
+    if (bizOnly && !c.isBusiness) return false;
     return true;
   }).sort((a, b) => {
     // Group by city, then alphabetical by store name. Empty cities sort to the bottom.
@@ -367,8 +383,9 @@ const Contacts = () => {
             </button>
           )}
           <button className="btn" onClick={() => importFromWhatsApp()}><Icon name="phone" size={12} />Import from WhatsApp</button>
-          <button className="btn" onClick={() => importVendorsFlow()}><Icon name="link" size={12} />Import CSV</button>
-          <button className="btn" onClick={() => window.location.href = '/api/vendors/export.csv'}><Icon name="doc" size={12} />Export</button>
+          <button className="btn" onClick={() => window.location.href = '/api/vendors/template.xlsx'} title="Download a blank Excel template with the columns and a sample row"><Icon name="doc" size={12} />Excel template</button>
+          <button className="btn" onClick={() => importVendorsFlow()}><Icon name="link" size={12} />Import Excel/CSV</button>
+          <button className="btn" onClick={() => window.location.href = '/api/vendors/export.xlsx'}><Icon name="doc" size={12} />Export</button>
           <button className="btn primary" onClick={() => window.openNewContact && window.openNewContact()}><Icon name="plus" size={12} />New lead</button>
         </div>
       </div>
@@ -380,6 +397,11 @@ const Contacts = () => {
         </div>
         <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
           <button className={'chip ' + (tag === 'all' ? 'accent' : '')} onClick={() => setTag('all')}>All</button>
+          <button
+            className={'chip ' + (bizOnly ? 'accent' : '')}
+            onClick={() => setBizOnly((v) => !v)}
+            title="Show only WhatsApp Business accounts"
+          >Business {bizCount > 0 && <span style={{ opacity: 0.7 }}>({bizCount})</span>}</button>
           {allTags.map((t) => <button key={t} className={'chip ' + (tag === t ? 'accent' : '')} onClick={() => setTag(t)}>{t}</button>)}
         </div>
         <div className="spacer" />
@@ -413,6 +435,7 @@ const Contacts = () => {
                 <th>City</th>
                 <th>Type</th>
                 <th style={{ whiteSpace: 'nowrap' }}>Hours</th>
+                <th>About</th>
               </tr>
             </thead>
             <tbody>
@@ -458,7 +481,7 @@ async function importFromWhatsApp() {
 async function importVendorsFlow() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.csv';
+  input.accept = '.csv,.xlsx,.xls';
   input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -466,6 +489,10 @@ async function importVendorsFlow() {
     fd.append('file', file);
     const res = await fetch('/api/vendors/import', { method: 'POST', body: fd });
     const r = await res.json();
+    if (!res.ok) {
+      alert('Import failed: ' + (r.error || 'unknown') + (r.detail ? '\n' + r.detail : ''));
+      return;
+    }
     alert(`Imported: ${r.inserted} ok · ${r.invalid || 0} invalid · ${r.missing || 0} missing fields`);
     await refreshStore();
   };

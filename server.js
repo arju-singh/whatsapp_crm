@@ -9,6 +9,7 @@ app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; },
 }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/avatars', express.static(path.join(__dirname, 'data', 'avatars'), { maxAge: '7d' }));
 
 app.get('/api/wa/status', (req, res) => res.json(wa.getStatus()));
 app.get('/api/wa/qr', (req, res) => {
@@ -55,6 +56,26 @@ app.post('/api/wa/import-contacts', async (req, res) => {
   try {
     const onlySaved = req.body && req.body.onlySaved !== false;
     const result = await wa.importContacts({ onlySaved });
+    res.json(result);
+  } catch (e) {
+    res.status(503).json({ error: e.message });
+  }
+});
+app.post('/api/wa/enrich-contacts', async (req, res) => {
+  try {
+    const limit = Number(req.body?.limit) || 1000;
+    const onlyMissing = req.body?.onlyMissing !== false;
+    const delayMs = Number(req.body?.delayMs) || 250;
+    const result = await wa.enrichContacts({ limit, onlyMissing, delayMs });
+    res.json(result);
+  } catch (e) {
+    res.status(503).json({ error: e.message });
+  }
+});
+app.post('/api/wa/cache-avatars', async (req, res) => {
+  try {
+    const limit = Number(req.body?.limit) || 5000;
+    const result = await wa.cacheRemoteAvatars({ limit });
     res.json(result);
   } catch (e) {
     res.status(503).json({ error: e.message });
