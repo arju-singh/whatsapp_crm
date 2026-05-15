@@ -55,8 +55,11 @@ const Sidebar = ({ route, setRoute, openCmd, openWaQr }) => {
     { id: 'tickets', label: 'Tickets', icon: 'ticket', badge: ticketCount || null },
     { id: 'automations', label: 'Automations', icon: 'flow' },
   ];
+  const authUser = window.CURRENT_USER;
+  const canManageUsers = authUser && (authUser.role === 'admin' || authUser.role === 'super_admin');
   const sys = [
     { id: 'team', label: 'Team', icon: 'team' },
+    ...(canManageUsers ? [{ id: 'users', label: 'Users & access', icon: 'people' }] : []),
     { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
 
@@ -109,13 +112,31 @@ const Sidebar = ({ route, setRoute, openCmd, openWaQr }) => {
           <div style={{ fontSize: 10, color: 'var(--muted-2)' }}>{wa.queueDepth ? `${wa.queueDepth} in queue` : 'Bulk + thread sync'}</div>
         </div>
       </div>
-      <div className="sidebar-footer">
-        <Avatar name={me ? me.avatar : 'AS'} color={me ? me.color : '#E07A5F'} />
-        <div className="user-meta">
-          <div className="user-name trunc">{me ? me.name.replace(/^You \(|\)$/g, '') : 'Aria Sloane'}</div>
-          <div className="user-role trunc">{me ? me.role : 'AE — West Region'}</div>
-        </div>
-        <Icon name="caret-down" size={12} />
+      <div className="sidebar-footer" style={{ cursor: 'default' }}>
+        {(() => {
+          const u = window.CURRENT_USER;
+          const initials = u && u.name ? u.name.split(/\s+/).map((w) => w[0]).join('').slice(0,2).toUpperCase() : 'AS';
+          const roleLabel = u ? u.role.replace('_', ' ') : '—';
+          return (
+            <>
+              <Avatar name={initials} color="#E07A5F" />
+              <div className="user-meta">
+                <div className="user-name trunc">{u ? u.name : 'Signed out'}</div>
+                <div className="user-role trunc" style={{ textTransform: 'capitalize' }}>{roleLabel}</div>
+              </div>
+              <button
+                onClick={async () => {
+                  await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+                  window.location.href = '/login';
+                }}
+                title="Sign out"
+                style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: 6, color: 'var(--muted)' }}
+              >
+                <span style={{ fontSize: 10, padding: '4px 8px', border: '1px solid var(--rule)', borderRadius: 4 }}>Sign out</span>
+              </button>
+            </>
+          );
+        })()}
       </div>
     </aside>
   );

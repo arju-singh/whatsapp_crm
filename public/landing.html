@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arju_CRM — Vol. 01, The WhatsApp CRM</title>
+  <meta name="description" content="A quietly capable CRM for the people who actually live in WhatsApp. Bulk sends, follow-ups, pipeline. No Meta approval, no per-message fees.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A1A1A'/%3E%3Ctext x='50%25' y='58%25' text-anchor='middle' font-family='Georgia,serif' font-size='40' font-weight='600' fill='%23F5F1EA'%3EA%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,300;1,9..144,400;1,9..144,500;1,9..144,600&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #F2EDE3;
+      --paper-2: #ECE6D9;
+      --card: #FAF6EC;
+      --ink: #161412;
+      --ink-2: #2C2825;
+      --ink-3: #4A443E;
+      --muted: #847D72;
+      --muted-2: #9F9587;
+      --rule: #C9BFAC;
+      --rule-2: #DDD4C0;
+      --accent: #B73E2B;
+      --accent-soft: #E8C9BF;
+      --gold: #B68A4D;
+      --ink-warm: #2A1F18;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter Tight', system-ui, -apple-system, sans-serif;
+      background: var(--paper); color: var(--ink);
+      line-height: 1.55; font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+
+    .container { max-width: 1120px; margin: 0 auto; padding: 0 32px; }
+    @media (max-width: 720px) { .container { padding: 0 20px; } }
+    @media (max-width: 480px) { .container { padding: 0 16px; } }
+
+    .serif { font-family: 'Fraunces', Georgia, serif; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    /* ---------- Masthead ---------- */
+    .masthead {
+      border-bottom: 1px solid var(--ink);
+      padding: 14px 0 16px;
+      background: var(--paper);
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(8px);
+    }
+    .masthead-row {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 24px; flex-wrap: wrap;
+    }
+    .masthead-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--muted); display: flex; gap: 22px; flex-wrap: wrap;
+    }
+    .masthead-meta strong { color: var(--ink-2); font-weight: 500; }
+    .brand-link {
+      text-decoration: none; color: inherit;
+      display: inline-flex; align-items: baseline; gap: 12px;
+    }
+    .brand-mark {
+      font-family: 'Fraunces', serif; font-weight: 600;
+      font-size: 14px; letter-spacing: -0.01em; color: var(--accent);
+      text-transform: uppercase;
+    }
+    .nav-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding-top: 10px; gap: 16px;
+    }
+    .nav-title {
+      font-family: 'Fraunces', serif;
+      font-size: clamp(28px, 4.2vw, 44px);
+      font-weight: 500; letter-spacing: -0.025em; line-height: 1;
+    }
+    .nav-title .dot { color: var(--accent); }
+    .nav-links { display: flex; gap: 18px; align-items: center; }
+    .nav-link {
+      text-decoration: none; color: var(--ink-2);
+      font-size: 13px; font-weight: 500; letter-spacing: 0.01em;
+    }
+    .nav-link:hover { color: var(--accent); }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--ink); border-radius: 2px;
+      background: var(--ink); color: var(--paper);
+      text-decoration: none; cursor: pointer; font-family: inherit;
+      letter-spacing: 0.01em;
+    }
+    .btn:hover { background: var(--accent); border-color: var(--accent); }
+    .btn.ghost {
+      background: transparent; color: var(--ink); border-color: var(--ink);
+    }
+    .btn.ghost:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+    .btn.lg { padding: 14px 26px; font-size: 14px; }
+    @media (max-width: 520px) {
+      .nav-links .desktop-only { display: none; }
+      .nav-links { gap: 10px; }
+    }
+
+    /* ---------- Cover ---------- */
+    .cover { padding: 80px 0 96px; border-bottom: 1px solid var(--rule); }
+    @media (max-width: 720px) { .cover { padding: 56px 0 64px; } }
+
+    .cover-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 28px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .cover-eyebrow::after {
+      content: ''; flex: 1; height: 1px; background: var(--rule); max-width: 280px;
+    }
+
+    .cover h1 {
+      font-family: 'Fraunces', serif; font-weight: 400;
+      font-size: clamp(56px, 9.5vw, 132px);
+      line-height: 0.92;
+      letter-spacing: -0.045em;
+      margin: 0 0 36px;
+      color: var(--ink-warm);
+    }
+    .cover h1 em {
+      font-style: italic; font-weight: 300; color: var(--accent);
+    }
+    .cover h1 .small {
+      display: block; font-size: 0.42em; font-style: italic; font-weight: 300;
+      color: var(--ink-3); letter-spacing: -0.015em; margin-top: 12px; line-height: 1.15;
+    }
+
+    .lede {
+      font-family: 'Fraunces', serif; font-weight: 300; font-style: italic;
+      font-size: clamp(18px, 2.4vw, 26px);
+      line-height: 1.45; color: var(--ink-2);
+      max-width: 720px; margin: 0 0 40px;
+      letter-spacing: -0.005em;
+    }
+    .lede::first-line { font-style: normal; }
+
+    .cover-cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .cover-cta .meta {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+      margin-left: 6px;
+    }
+    @media (max-width: 480px) {
+      .cover-cta { flex-direction: column; align-items: stretch; }
+      .cover-cta .btn { justify-content: center; }
+      .cover-cta .meta { margin-left: 0; text-align: center; }
+    }
+
+    /* ---------- Section base ---------- */
+    .section { padding: 90px 0; border-bottom: 1px solid var(--rule); }
+    @media (max-width: 720px) { .section { padding: 60px 0; } }
+
+    .section-head {
+      display: grid; grid-template-columns: 220px 1fr; gap: 60px;
+      margin-bottom: 56px;
+    }
+    @media (max-width: 720px) { .section-head { grid-template-columns: 1fr; gap: 18px; margin-bottom: 36px; } }
+
+    .chapter {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--accent); padding-top: 6px;
+    }
+    .chapter .num {
+      display: block; font-family: 'Fraunces', serif; font-style: italic;
+      font-size: 64px; line-height: 1; color: var(--ink-warm); margin-top: 8px;
+      font-weight: 300; letter-spacing: -0.04em;
+    }
+    @media (max-width: 720px) { .chapter .num { font-size: 48px; margin-top: 6px; } }
+
+    .section h2 {
+      font-family: 'Fraunces', serif; font-weight: 400;
+      font-size: clamp(32px, 4.6vw, 56px);
+      line-height: 1.05; letter-spacing: -0.03em;
+      margin: 0 0 18px; color: var(--ink-warm);
+    }
+    .section h2 em { font-style: italic; color: var(--accent); font-weight: 300; }
+
+    .section-sub {
+      font-family: 'Fraunces', serif; font-weight: 300; font-style: italic;
+      font-size: 19px; line-height: 1.5; color: var(--ink-3);
+      max-width: 560px; margin: 0;
+    }
+
+    /* ---------- Editorial features ---------- */
+    .articles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+    .article {
+      padding: 32px 28px; border-right: 1px solid var(--rule-2);
+      border-top: 1px solid var(--rule-2);
+    }
+    .article:nth-child(3n) { border-right: 0; }
+    .article-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 14px;
+    }
+    .article h3 {
+      font-family: 'Fraunces', serif; font-weight: 500;
+      font-size: 22px; line-height: 1.15; letter-spacing: -0.015em;
+      margin: 0 0 10px; color: var(--ink-warm);
+    }
+    .article p {
+      font-size: 14px; color: var(--ink-3); line-height: 1.65; margin: 0;
+    }
+    @media (max-width: 880px) {
+      .articles { grid-template-columns: repeat(2, 1fr); }
+      .article:nth-child(3n) { border-right: 1px solid var(--rule-2); }
+      .article:nth-child(2n) { border-right: 0; }
+    }
+    @media (max-width: 560px) {
+      .articles { grid-template-columns: 1fr; }
+      .article { border-right: 0 !important; padding: 24px 0; }
+    }
+
+    /* ---------- Stats line ---------- */
+    .stats-strip {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      padding: 36px 0; border-top: 1px solid var(--ink-2); border-bottom: 1px solid var(--ink-2);
+      margin-top: 80px;
+    }
+    .stat-cell {
+      padding: 0 24px; border-right: 1px solid var(--rule);
+    }
+    .stat-cell:last-child { border-right: 0; }
+    .stat-cell .n {
+      font-family: 'Fraunces', serif; font-weight: 400;
+      font-size: 44px; line-height: 1; letter-spacing: -0.025em;
+      color: var(--ink-warm);
+    }
+    .stat-cell .n em { font-style: italic; color: var(--accent); font-weight: 300; }
+    .stat-cell .l {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+      margin-top: 10px;
+    }
+    @media (max-width: 720px) {
+      .stats-strip { grid-template-columns: repeat(2, 1fr); padding: 24px 0; }
+      .stat-cell { padding: 16px; border-bottom: 1px solid var(--rule); }
+      .stat-cell:nth-child(2n) { border-right: 0; }
+      .stat-cell:nth-last-child(-n+2) { border-bottom: 0; }
+      .stat-cell .n { font-size: 34px; }
+    }
+
+    /* ---------- Steps ---------- */
+    .steps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+      border-top: 1px solid var(--rule-2);
+    }
+    .step {
+      padding: 36px 28px;
+      border-right: 1px solid var(--rule-2);
+      position: relative;
+    }
+    .step:last-child { border-right: 0; }
+    .step-num {
+      font-family: 'Fraunces', serif; font-style: italic; font-weight: 300;
+      font-size: 42px; color: var(--accent);
+      line-height: 1; margin-bottom: 22px; letter-spacing: -0.02em;
+    }
+    .step h4 {
+      font-family: 'Fraunces', serif; font-weight: 500;
+      font-size: 22px; margin: 0 0 8px; letter-spacing: -0.015em;
+      color: var(--ink-warm);
+    }
+    .step p { color: var(--ink-3); font-size: 14px; line-height: 1.65; margin: 0; }
+    @media (max-width: 720px) {
+      .steps { grid-template-columns: 1fr; }
+      .step { border-right: 0; border-bottom: 1px solid var(--rule-2); padding: 28px 0; }
+      .step:last-child { border-bottom: 0; }
+    }
+
+    /* ---------- Pull quote ---------- */
+    .quote-section { padding: 110px 0; text-align: center; }
+    @media (max-width: 720px) { .quote-section { padding: 64px 0; } }
+    .quote {
+      font-family: 'Fraunces', serif; font-weight: 300;
+      font-size: clamp(28px, 4.4vw, 54px);
+      line-height: 1.18; letter-spacing: -0.025em;
+      color: var(--ink-warm);
+      max-width: 880px; margin: 0 auto 28px;
+    }
+    .quote em { font-style: italic; color: var(--accent); }
+    .quote-marks {
+      font-family: 'Fraunces', serif; font-size: 80px; font-style: italic;
+      color: var(--accent); line-height: 0.4; display: block; margin-bottom: 8px;
+    }
+    .quote-attribution {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .quote-attribution::before {
+      content: '— '; color: var(--muted);
+    }
+
+    /* ---------- Closing ---------- */
+    .closing {
+      background: var(--ink-warm); color: var(--paper);
+      padding: 100px 0; text-align: center; border-bottom: 1px solid var(--rule);
+    }
+    @media (max-width: 720px) { .closing { padding: 64px 0; } }
+    .closing-eyebrow {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--accent-soft); margin-bottom: 28px;
+    }
+    .closing h2 {
+      font-family: 'Fraunces', serif; font-weight: 400;
+      font-size: clamp(36px, 6vw, 76px);
+      line-height: 1; letter-spacing: -0.03em;
+      margin: 0 0 24px; color: var(--paper);
+    }
+    .closing h2 em { font-style: italic; color: var(--accent); font-weight: 300; }
+    .closing p {
+      font-family: 'Fraunces', serif; font-style: italic; font-weight: 300;
+      font-size: 18px; color: rgba(242, 237, 227, 0.7);
+      max-width: 520px; margin: 0 auto 36px;
+    }
+    .closing .btn { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+    .closing .btn:hover { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+
+    /* ---------- Colophon footer ---------- */
+    .colophon { padding: 50px 0 32px; }
+    .colophon .rule {
+      height: 1px; background: var(--rule); margin: 0 auto 36px; max-width: 100%;
+    }
+    .colophon-grid {
+      display: grid; grid-template-columns: 1.4fr 1fr 1fr;
+      gap: 40px; margin-bottom: 40px;
+    }
+    @media (max-width: 720px) { .colophon-grid { grid-template-columns: 1fr; gap: 24px; } }
+    .colophon h5 {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+      margin: 0 0 14px; font-weight: 500;
+    }
+    .colophon p, .colophon a {
+      font-family: 'Fraunces', serif; font-size: 14px; color: var(--ink-2);
+      line-height: 1.7; margin: 0 0 4px; text-decoration: none; display: block;
+    }
+    .colophon a:hover { color: var(--accent); }
+    .colophon-bottom {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding-top: 24px; border-top: 1px solid var(--rule-2);
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+    }
+    @media (max-width: 520px) { .colophon-bottom { flex-direction: column; gap: 8px; text-align: center; } }
+  </style>
+</head>
+<body>
+
+  <!-- ============ MASTHEAD ============ -->
+  <header class="masthead">
+    <div class="container">
+      <div class="masthead-row">
+        <div class="masthead-meta">
+          <span><strong>Vol. 01</strong> · Issue 01</span>
+          <span class="desktop-only" style="display: inline;">A bi-monthly system of record</span>
+        </div>
+        <div class="masthead-meta">
+          <span id="today-date">2026</span>
+          <span class="desktop-only" style="display: inline;">Published from Mumbai</span>
+        </div>
+      </div>
+      <div class="nav-row">
+        <a href="/" class="brand-link">
+          <div class="nav-title">Arju_CRM<span class="dot">.</span></div>
+        </a>
+        <div class="nav-links">
+          <a href="#chapter-one" class="nav-link desktop-only">Chapter I</a>
+          <a href="#chapter-two" class="nav-link desktop-only">Chapter II</a>
+          <a href="/login" class="nav-link">Sign in</a>
+          <a href="/login#signup" class="btn">Subscribe →</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ COVER ============ -->
+  <section class="cover">
+    <div class="container">
+      <div class="cover-eyebrow">The Cover Story · No. 01</div>
+      <h1>
+        The quiet <em>CRM</em><br>
+        for people who<br>
+        live in <em>WhatsApp.</em>
+        <span class="small">A field guide to selling without leaving the chat.</span>
+      </h1>
+      <p class="lede">
+        Some teams open Salesforce. Yours opens WhatsApp. This is a CRM built for that
+        reality — bulk-send to thousands, schedule follow-ups, watch replies land in one
+        inbox. No Meta verification, no per-message fees, no spreadsheets to update by
+        hand on a Sunday night.
+      </p>
+      <div class="cover-cta">
+        <a href="/login#signup" class="btn lg">Begin the trial →</a>
+        <a href="/login" class="btn lg ghost">Already a subscriber?</a>
+        <span class="meta">Five-minute setup · Self-hosted</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CHAPTER ONE — FEATURES ============ -->
+  <section class="section" id="chapter-one">
+    <div class="container">
+      <div class="section-head">
+        <div class="chapter">
+          Chapter I
+          <span class="num serif">01</span>
+        </div>
+        <div>
+          <h2>The instruments of the trade, <em>quietly remarkable.</em></h2>
+          <p class="section-sub">
+            Six tools, each doing one thing well. Together they replace the messy stack
+            of spreadsheets, second phones, and forgotten promises that most WhatsApp
+            sellers run on.
+          </p>
+        </div>
+      </div>
+
+      <div class="articles">
+        <article class="article">
+          <div class="article-num">№ 01 — Outbound</div>
+          <h3>Bulk messaging, with manners</h3>
+          <p>Send personalized WhatsApp messages to hundreds of contacts at a pace WhatsApp's anti-abuse systems quietly approve of. Variables fill in. Failures retry. You don't get banned.</p>
+        </article>
+        <article class="article">
+          <div class="article-num">№ 02 — Cadence</div>
+          <h3>Automatic follow-ups</h3>
+          <p>"If no reply in 48 hours, send Template B." Build sequences that pause the moment a prospect responds, and resume when interest reignites. Sleep through the work.</p>
+        </article>
+        <article class="article">
+          <div class="article-num">№ 03 — Enrichment</div>
+          <h3>Profile pictures &amp; bios</h3>
+          <p>Pull each contact's avatar, About text, and business flag from WhatsApp directly. Cached locally — links never expire. Your CRM finally looks like the chat app it was born from.</p>
+        </article>
+        <article class="article">
+          <div class="article-num">№ 04 — Pipeline</div>
+          <h3>Stages, deals, calendar</h3>
+          <p>Drag-and-drop pipeline, deal scoring, calendar of every touchpoint. Everything a real CRM has — built lean and editable, no expensive seats.</p>
+        </article>
+        <article class="article">
+          <div class="article-num">№ 05 — Inbox</div>
+          <h3>One place for replies</h3>
+          <p>WhatsApp and email responses funnel into a single thread per contact. Quick-reply from your browser. Read receipts roll in. Never lose a hot lead in a notification flood again.</p>
+        </article>
+        <article class="article">
+          <div class="article-num">№ 06 — Intelligence</div>
+          <h3>AI drafts, you decide</h3>
+          <p>Optional AI suggests responses tailored to each conversation's tone and history. You review and approve — nothing fires without your finger on the trigger.</p>
+        </article>
+      </div>
+
+      <div class="stats-strip">
+        <div class="stat-cell">
+          <div class="n"><em>∞</em></div>
+          <div class="l">Contacts</div>
+        </div>
+        <div class="stat-cell">
+          <div class="n"><em>$0</em></div>
+          <div class="l">Per message</div>
+        </div>
+        <div class="stat-cell">
+          <div class="n">3</div>
+          <div class="l">Role tiers</div>
+        </div>
+        <div class="stat-cell">
+          <div class="n">24<em>/</em>7</div>
+          <div class="l">Self-hosted</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PULL QUOTE ============ -->
+  <section class="quote-section">
+    <div class="container">
+      <span class="quote-marks">"</span>
+      <p class="quote">
+        Most CRMs make you <em>change how you work.</em><br>
+        This one just records what you <em>already do.</em>
+      </p>
+      <div class="quote-attribution">The Editorial</div>
+    </div>
+  </section>
+
+  <!-- ============ CHAPTER TWO — HOW IT WORKS ============ -->
+  <section class="section" id="chapter-two" style="background: var(--card);">
+    <div class="container">
+      <div class="section-head">
+        <div class="chapter">
+          Chapter II
+          <span class="num serif">02</span>
+        </div>
+        <div>
+          <h2>From zero to first send, in <em>five quiet minutes.</em></h2>
+          <p class="section-sub">
+            No business verification. No Meta API approvals. No tearing your contact list
+            out of one tool to feed another. The setup is short. The work begins immediately.
+          </p>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">i.</div>
+          <h4>Link your WhatsApp</h4>
+          <p>Open the app, scan a QR code with WhatsApp → Linked Devices. Your real number is now wired. The session persists across restarts.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">ii.</div>
+          <h4>Import your contacts</h4>
+          <p>Pull every saved contact in one click. Or upload a CSV. Avatars and About text enrich themselves in the background.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">iii.</div>
+          <h4>Send, follow up, close</h4>
+          <p>Compose a campaign. Queue follow-ups. Replies land in the inbox. The pipeline updates itself when a deal moves.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CLOSING ============ -->
+  <section class="closing">
+    <div class="container">
+      <div class="closing-eyebrow">Subscribe to Volume 01</div>
+      <h2>Begin <em>today.</em></h2>
+      <p>
+        It is free, it is yours, and it runs on a server you control. Sign up takes
+        a moment. The work begins immediately after.
+      </p>
+      <a href="/login#signup" class="btn lg">Create your account →</a>
+    </div>
+  </section>
+
+  <!-- ============ COLOPHON ============ -->
+  <footer class="colophon">
+    <div class="container">
+      <div class="colophon-grid">
+        <div>
+          <h5>Colophon</h5>
+          <p>
+            Arju_CRM is set in <em>Fraunces</em> and <em>Inter Tight</em>,
+            built in Node and React, hosted on a quiet machine in Mumbai.
+            Issue No. 01 published 2026.
+          </p>
+        </div>
+        <div>
+          <h5>The Sections</h5>
+          <a href="#chapter-one">Chapter I — The Instruments</a>
+          <a href="#chapter-two">Chapter II — How It Works</a>
+        </div>
+        <div>
+          <h5>Subscribe</h5>
+          <a href="/login">Sign in</a>
+          <a href="/login#signup">Create an account</a>
+        </div>
+      </div>
+      <div class="colophon-bottom">
+        <span>© 2026 Arju_CRM · All rights reserved</span>
+        <span>Made by hand · Arju Singh</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Set today's date in the masthead, in editorial format.
+    const d = new Date();
+    const month = d.toLocaleString('en-US', { month: 'long' });
+    document.getElementById('today-date').textContent =
+      `${month.charAt(0).toUpperCase() + month.slice(1)} ${d.getDate()}, ${d.getFullYear()}`;
+
+    // Smooth scroll for in-page anchors.
+    document.querySelectorAll('a[href^="#"]').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        const id = a.getAttribute('href').slice(1);
+        const el = document.getElementById(id);
+        if (el) { e.preventDefault(); el.scrollIntoView({ behavior: 'smooth' }); }
+      });
+    });
+  </script>
+</body>
+</html>

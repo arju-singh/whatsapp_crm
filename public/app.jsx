@@ -104,6 +104,7 @@ const App = () => {
     tickets: ['Arju_CRM', 'Tickets'],
     automations: ['Arju_CRM', 'Automations'],
     team: ['Arju_CRM', 'Team'],
+    users: ['Arju_CRM', 'Users'],
     settings: ['Arju_CRM', 'Settings'],
   };
 
@@ -125,6 +126,7 @@ const App = () => {
     tickets: <Tickets />,
     automations: <Automations />,
     team: <Team />,
+    users: <Users />,
     settings: <Settings />,
   }[route];
 

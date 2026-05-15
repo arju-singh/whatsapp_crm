@@ -1,15 +1,36 @@
 const express = require('express');
 const path = require('path');
+const db = require('./src/db');
 const wa = require('./src/whatsapp');
 const scheduler = require('./src/scheduler');
+const { makeAuthMiddleware, loadSession, parseCookies, SESSION_COOKIE } = require('./src/auth');
 
 const app = express();
 app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => { req.rawBody = buf; },
 }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Public assets (no auth needed)
 app.use('/avatars', express.static(path.join(__dirname, 'data', 'avatars'), { maxAge: '7d' }));
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+
+// Root: serve marketing landing page when logged out, app when logged in.
+app.get('/', (req, res) => {
+  const sid = parseCookies(req)[SESSION_COOKIE];
+  const session = loadSession(db, sid);
+  if (session) return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+});
+
+// Auth gate — runs for everything except whitelisted public paths.
+// /api/auth/login,signup,logout are exempt (in PUBLIC_PATHS);
+// /api/auth/me + /api/auth/change-password go through and get req.user populated.
+app.use(makeAuthMiddleware(db));
+
+app.use('/api/auth', require('./src/routes/auth'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/wa/status', (req, res) => res.json(wa.getStatus()));
 app.get('/api/wa/qr', (req, res) => {
@@ -51,6 +72,14 @@ app.get('/api/wa/diagnostics', (req, res) => {
         ? 'Linked, but no inbound messages logged yet. Reply from a different phone (not the linked one).'
         : 'Linked and receiving.'),
   });
+});
+app.post('/api/wa/reinit', async (req, res) => {
+  try {
+    wa.safeReinit('manual reconnect via API');
+    res.json({ ok: true, status: wa.getStatus() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 app.post('/api/wa/import-contacts', async (req, res) => {
   try {
@@ -106,6 +135,7 @@ app.use('/api/calendar', require('./src/routes/calendar'));
 app.use('/api/ai', require('./src/routes/ai'));
 app.use('/api/reports', require('./src/routes/reports'));
 app.use('/api/leads', require('./src/routes/leads'));
+app.use('/api/users', require('./src/routes/users'));
 
 // Public unsubscribe endpoint (linked from emails)
 app.get('/unsubscribe', (req, res) => {

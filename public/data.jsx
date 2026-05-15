@@ -9,10 +9,15 @@
 const api = async (path, opts = {}) => {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     ...opts,
     body: opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)
       ? JSON.stringify(opts.body) : opts.body,
   });
+  if (res.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/signup') {
+    window.location.href = '/login';
+    throw new Error('unauthorized');
+  }
   if (!res.ok) {
     let err;
     try { err = await res.json(); } catch (_) { err = { error: res.statusText }; }
@@ -227,11 +232,13 @@ window.STORE = STORE;
 
 async function loadAll() {
   const [
+    meRaw,
     companiesRaw, contactsRaw, stagesRaw, dealsRaw, tasksRaw, ticketsRaw,
     automationsRaw, teamRaw, notifsRaw, campaignsRaw, calendarRaw,
     revenueRaw, sourcesRaw, funnelRaw, heatmapRaw, kpiRaw, leaderboardRaw,
     pipelineTrendRaw, summaryRaw, insightsRaw, waStatus,
   ] = await Promise.all([
+    api('/api/auth/me'),
     api('/api/companies'),
     api('/api/contacts').then((r) => r.rows || r),
     api('/api/stages'),
@@ -255,6 +262,7 @@ async function loadAll() {
     api('/api/wa/status').catch(() => ({ ready: false, hasQr: false })),
   ]);
 
+  window.CURRENT_USER = meRaw && meRaw.user ? meRaw.user : null;
   window.COMPANIES = companiesRaw.map(adaptCompany);
   window.CONTACTS = contactsRaw.map(adaptContact);
   window.STAGES = stagesRaw.map(adaptStage);

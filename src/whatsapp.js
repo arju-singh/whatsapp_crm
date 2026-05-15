@@ -381,14 +381,6 @@ async function sendOne(jobMessageId) {
     return;
   }
 
-  // Daily cap — push 30 min ahead and let scheduler retry
-  if (sentTodayCount() >= settings.getInt('wa_daily_cap')) {
-    const next = Date.now() + 30 * 60 * 1000;
-    db.prepare(`UPDATE messages SET status='scheduled', scheduled_at=?, next_attempt_at=? WHERE id=?`)
-      .run(next, next, jobMessageId);
-    return;
-  }
-
   const body = renderTemplate(row.body, {
     name: row.name,
     company: row.company || '',
@@ -436,14 +428,6 @@ async function sendOne(jobMessageId) {
       return;
     }
     const attempts = (row.attempts || 0) + 1;
-    if (!isPermanentError(errMsg) && attempts < settings.getInt('wa_max_attempts')) {
-      const backoff = Math.min(60 * 60 * 1000, 60 * 1000 * Math.pow(2, attempts));
-      const next = Date.now() + backoff;
-      db.prepare(`
-        UPDATE messages SET status='scheduled', attempts=?, error=?, scheduled_at=?, next_attempt_at=? WHERE id=?
-      `).run(attempts, errMsg.slice(0, 500), next, next, jobMessageId);
-      return;
-    }
     db.prepare('UPDATE messages SET status=?, attempts=?, error=? WHERE id=?')
       .run('failed', attempts, errMsg.slice(0, 500), jobMessageId);
     if (row.campaign_id) {
@@ -577,6 +561,7 @@ module.exports = {
   client,
   getStatus,
   getQrDataUrl,
+  safeReinit,
   enqueueMessage,
   renderTemplate,
   importContacts,

@@ -224,6 +224,43 @@ ensureColumn('vendors', 'profile_pic_url', 'TEXT');
 ensureColumn('vendors', 'about_text', 'TEXT');
 ensureColumn('vendors', 'is_business', 'INTEGER DEFAULT 0');
 ensureColumn('vendors', 'enriched_at', 'INTEGER');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+  updated_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+  last_login_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  user_agent TEXT,
+  ip TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now') * 1000),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+`);
+
+// Seed super_admin on first run.
+(() => {
+  const { hashPassword } = require('./auth');
+  const exists = db.prepare(`SELECT id FROM users WHERE phone = ?`).get('919306466642');
+  if (!exists) {
+    db.prepare(`INSERT INTO users (name, phone, password_hash, role) VALUES (?, ?, ?, ?)`)
+      .run('Arju Singh', '919306466642', hashPassword('admin123'), 'super_admin');
+    console.log('[db] seeded super_admin: phone=919306466642 password=admin123  (CHANGE IT after first login)');
+  }
+})();
 ensureColumn('campaigns', 'owner', 'TEXT');
 ensureColumn('campaigns', 'opened_count', 'INTEGER DEFAULT 0');
 ensureColumn('campaigns', 'replied_count', 'INTEGER DEFAULT 0');

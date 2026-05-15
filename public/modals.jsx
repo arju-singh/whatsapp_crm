@@ -423,6 +423,7 @@ const NewCampaignModal = ({ open, onClose }) => {
 const WaQrModal = ({ open, onClose }) => {
   const [qr, setQr] = React.useState(null);
   const [status, setStatus] = React.useState(null);
+  const [reconnecting, setReconnecting] = React.useState(false);
   React.useEffect(() => {
     if (!open) return;
     let active = true;
@@ -444,7 +445,18 @@ const WaQrModal = ({ open, onClose }) => {
     const t = setInterval(tick, 4000);
     return () => { active = false; clearInterval(t); };
   }, [open]);
+
+  const reconnect = async () => {
+    setReconnecting(true);
+    setQr(null);
+    try {
+      await api('/api/wa/reinit', { method: 'POST' });
+    } catch (_) {}
+    setTimeout(() => setReconnecting(false), 4000);
+  };
+
   if (!open) return null;
+  const stuck = status && !status.ready && !status.hasQr;
   return (
     <Modal open={open} onClose={onClose} title="Link WhatsApp">
       <div style={{ textAlign: 'center', padding: 8 }}>
@@ -453,6 +465,9 @@ const WaQrModal = ({ open, onClose }) => {
             <div className="serif" style={{ fontSize: 22, color: 'var(--sage)' }}>WhatsApp linked.</div>
             {status.info && <div className="mono" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>{status.info.wid}</div>}
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>You can send messages and the inbox will sync inbound replies automatically.</div>
+            <button className="btn sm" style={{ marginTop: 16 }} onClick={reconnect} disabled={reconnecting}>
+              {reconnecting ? 'Reconnecting…' : 'Force reconnect'}
+            </button>
           </div>
         ) : qr ? (
           <>
@@ -460,7 +475,15 @@ const WaQrModal = ({ open, onClose }) => {
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>WhatsApp → Settings → Linked Devices → Link a device</div>
           </>
         ) : (
-          <div style={{ padding: 40, color: 'var(--muted)' }}>Waiting for QR code…</div>
+          <div style={{ padding: 24, color: 'var(--muted)' }}>
+            <div>{reconnecting ? 'Reconnecting WhatsApp…' : 'Waiting for QR code…'}</div>
+            {stuck && !reconnecting && (
+              <>
+                <div style={{ fontSize: 11, marginTop: 8 }}>The client is stuck between authenticated and ready. Click reconnect to restart the session.</div>
+                <button className="btn primary sm" style={{ marginTop: 12 }} onClick={reconnect}>Reconnect WhatsApp</button>
+              </>
+            )}
+          </div>
         )}
       </div>
     </Modal>
