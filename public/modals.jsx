@@ -455,6 +455,16 @@ const WaQrModal = ({ open, onClose }) => {
     setTimeout(() => setReconnecting(false), 4000);
   };
 
+  const relinkFromScratch = async () => {
+    if (!window.confirm('This will unlink WhatsApp and require you to scan a new QR code. Continue?')) return;
+    setReconnecting(true);
+    setQr(null);
+    try {
+      await api('/api/wa/logout', { method: 'POST' });
+    } catch (_) {}
+    setTimeout(() => setReconnecting(false), 6000);
+  };
+
   if (!open) return null;
   const stuck = status && !status.ready && !status.hasQr;
   return (
@@ -465,9 +475,14 @@ const WaQrModal = ({ open, onClose }) => {
             <div className="serif" style={{ fontSize: 22, color: 'var(--sage)' }}>WhatsApp linked.</div>
             {status.info && <div className="mono" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>{status.info.wid}</div>}
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>You can send messages and the inbox will sync inbound replies automatically.</div>
-            <button className="btn sm" style={{ marginTop: 16 }} onClick={reconnect} disabled={reconnecting}>
-              {reconnecting ? 'Reconnecting…' : 'Force reconnect'}
-            </button>
+            <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 16 }}>
+              <button className="btn sm" onClick={reconnect} disabled={reconnecting}>
+                {reconnecting ? 'Reconnecting…' : 'Force reconnect'}
+              </button>
+              <button className="btn sm" onClick={relinkFromScratch} disabled={reconnecting}>
+                Unlink &amp; re-scan
+              </button>
+            </div>
           </div>
         ) : qr ? (
           <>
@@ -479,8 +494,11 @@ const WaQrModal = ({ open, onClose }) => {
             <div>{reconnecting ? 'Reconnecting WhatsApp…' : 'Waiting for QR code…'}</div>
             {stuck && !reconnecting && (
               <>
-                <div style={{ fontSize: 11, marginTop: 8 }}>The client is stuck between authenticated and ready. Click reconnect to restart the session.</div>
-                <button className="btn primary sm" style={{ marginTop: 12 }} onClick={reconnect}>Reconnect WhatsApp</button>
+                <div style={{ fontSize: 11, marginTop: 8 }}>The client is stuck between authenticated and ready. Reconnect restarts the session; if that keeps failing, unlink &amp; re-scan wipes the saved login and forces a fresh QR.</div>
+                <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 12 }}>
+                  <button className="btn primary sm" onClick={reconnect}>Reconnect WhatsApp</button>
+                  <button className="btn sm" onClick={relinkFromScratch}>Unlink &amp; re-scan</button>
+                </div>
               </>
             )}
           </div>
@@ -551,11 +569,9 @@ const NewPickerModal = ({ open, onClose, onPick }) => {
 // and posts a row to `/api/calls` with disposition + outcome + notes so the
 // vendor's status auto-advances.
 const DISPOSITIONS = [
-  { v: 'connected',         label: 'Connected'        },
+  { v: 'connected',         label: '✓ Connected'     },
+  { v: 'no_answer',         label: 'No answer'        },
   { v: 'busy',              label: 'Busy'             },
-  { v: 'no_answer',         label: 'Not answered'     },
-  { v: 'callback_request',  label: 'Callback request' },
-  { v: 'voicemail',         label: 'Voicemail'        },
   { v: 'wrong_number',      label: 'Wrong number'     },
 ];
 // Lookup: backend value → friendly label (handles legacy 'answered' rows too).
@@ -698,61 +714,86 @@ const CallLogModal = ({ open, contact, onClose }) => {
   if (!contact) return null;
 
   return (
-    <Modal open={open} onClose={onClose} width={560} title={`Call · ${contact.name}`}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 12, alignItems: 'center', padding: '8px 0 16px', borderBottom: '1px solid var(--rule-2)', marginBottom: 12 }}>
-        <div className="serif" style={{ fontSize: 36, fontVariantNumeric: 'tabular-nums', minWidth: 110 }}>{fmtDur(seconds)}</div>
-        <div>
-          <div className="mono" style={{ fontSize: 13 }}>{contact.phone ? '+' + String(contact.phone).replace(/\D/g, '') : '—'}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{contact.title ? `Calling ${contact.title}` : 'No person on file'}</div>
-        </div>
-        <div className="row" style={{ gap: 6 }}>
-          {running ? (
-            <button className="btn sm" onClick={stop} title="Pause timer"><Icon name="pause" size={12} />Stop</button>
-          ) : (
-            <button className="btn sm" onClick={start} title="Resume timer"><Icon name="play" size={12} />Start</button>
-          )}
-          <button className="btn sm ghost" onClick={reset} title="Reset to 00:00">Reset</button>
+    <Modal open={open} onClose={onClose} width={520} title={`Call · ${contact.name}`}>
+      {/* Compact timer + phone strip */}
+      <div className="row" style={{ gap: 12, alignItems: 'center', padding: '4px 0 14px', borderBottom: '1px solid var(--rule-2)', marginBottom: 14 }}>
+        <div className="mono" style={{ fontSize: 20, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmtDur(seconds)}</div>
+        <div className="mono" style={{ fontSize: 13, color: 'var(--ink-3)', flex: 1 }}>{contact.phone ? '+' + String(contact.phone).replace(/\D/g, '') : '—'}</div>
+        {running ? (
+          <button className="btn sm" onClick={stop} title="Pause timer">Stop</button>
+        ) : (
+          <button className="btn sm" onClick={start} title="Resume timer">Start</button>
+        )}
+        <button className="btn sm ghost" onClick={reset} title="Reset">↻</button>
+      </div>
+
+      {/* How did it go */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>How did the call go?</div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          {DISPOSITIONS.map((d) => {
+            const sel = disposition === d.v;
+            return (
+              <button
+                key={d.v} type="button"
+                onClick={() => setDisposition(d.v)}
+                style={{
+                  padding: '6px 12px', borderRadius: 99, fontSize: 12, fontWeight: 600,
+                  border: '1.5px solid ' + (sel ? 'var(--ink)' : 'var(--rule)'),
+                  background: sel ? 'var(--ink)' : 'var(--paper-2)',
+                  color: sel ? 'var(--paper)' : 'var(--ink-3)',
+                  cursor: 'pointer', transition: 'all 0.12s',
+                }}
+              >{d.label}</button>
+            );
+          })}
         </div>
       </div>
 
-      <Field label="Disposition (what happened on the line)">
+      {/* What's next */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>What's next?</div>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-          {DISPOSITIONS.map((d) => (
-            <button key={d.v} type="button" className={'chip ' + (disposition === d.v ? 'accent' : '')} onClick={() => setDisposition(d.v)}>{d.label}</button>
-          ))}
+          {OUTCOMES.map((o) => {
+            const sel = outcome === o.v;
+            return (
+              <button
+                key={o.v} type="button"
+                onClick={() => setOutcome(o.v === outcome ? '' : o.v)}
+                style={{
+                  padding: '6px 12px', borderRadius: 99, fontSize: 12, fontWeight: 600,
+                  border: '1.5px solid ' + (sel ? 'var(--ink)' : 'var(--rule)'),
+                  background: sel ? 'var(--ink)' : 'var(--paper-2)',
+                  color: sel ? 'var(--paper)' : 'var(--ink-3)',
+                  cursor: 'pointer', transition: 'all 0.12s',
+                }}
+              >{o.label}</button>
+            );
+          })}
         </div>
-      </Field>
+      </div>
 
-      <Field label="Status / outcome">
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-          {OUTCOMES.map((o) => (
-            <button key={o.v} type="button" className={'chip ' + (outcome === o.v ? 'accent ' + o.tone : o.tone)} onClick={() => setOutcome(o.v === outcome ? '' : o.v)}>{o.label}</button>
-          ))}
-        </div>
-      </Field>
-
-      <Field label="Review / notes">
+      {/* Notes */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Notes</div>
         <textarea
-          rows={4}
+          rows={3}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="What did they say? Any objections? Promises?"
-          style={{ width: '100%', resize: 'vertical', minHeight: 80, padding: 8, border: '1px solid var(--rule)', borderRadius: 6, background: 'var(--paper)', fontSize: 12, fontFamily: 'inherit' }}
+          placeholder="What did they say?"
+          style={{ width: '100%', resize: 'vertical', minHeight: 60, padding: 10, border: '1px solid var(--rule)', borderRadius: 6, background: 'var(--paper)', fontSize: 13, fontFamily: 'inherit' }}
         />
-      </Field>
+      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' }}>
-        <Field label="Schedule a follow-up (optional)">
-          <input type="datetime-local" value={followUp} onChange={(e) => setFollowUp(e.target.value)} />
-        </Field>
-        <div className="row" style={{ gap: 6, paddingBottom: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      {/* Footer: follow-up date + actions */}
+      <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingTop: 4 }}>
+        <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+          <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>Follow-up (optional)</div>
+          <input type="datetime-local" value={followUp} onChange={(e) => setFollowUp(e.target.value)} style={{ width: '100%' }} />
+        </div>
+        <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn" disabled={saving} onClick={() => save()}>{saving ? 'Saving…' : 'Save call'}</button>
-          {promotable && (
-            <button className="btn primary" disabled={saving} onClick={() => save({ promote: true })} title="Save call & open a new deal pre-filled with this contact">
-              <Icon name="pipeline" size={12} />Save & promote to deal
-            </button>
-          )}
+          <button className="btn primary" disabled={saving} onClick={() => save()}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
 

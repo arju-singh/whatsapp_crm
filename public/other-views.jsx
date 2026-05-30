@@ -941,11 +941,11 @@ const FollowUps = () => {
   const contacts = window.CONTACTS || [];
   const findContact = (vendorId) => contacts.find((c) => c.raw_id === vendorId) || null;
 
-  // Pull "callback request" calls that don't yet have a follow-up task — surface them as
-  // virtual follow-up items so they don't get lost.
-  const callbackCalls = calls.filter((c) => c.disposition === 'callback_request');
+  // Pull calls that need a follow-up — disposition='callback_request' OR outcome='follow_up'.
+  // Surface them as virtual items if no task already covers the vendor.
+  const followUpCalls = calls.filter((c) => c.disposition === 'callback_request' || c.outcome === 'follow_up');
   const taskVendorIds = new Set(tasks.map((t) => t.raw_vendor_id).filter(Boolean));
-  const orphanCallbacks = callbackCalls.filter((c) => !taskVendorIds.has(c.vendor_id));
+  const orphanCallbacks = followUpCalls.filter((c) => !taskVendorIds.has(c.vendor_id));
 
   // Unify both into a single "items" list.
   const dayMs = 86_400_000;
@@ -972,15 +972,16 @@ const FollowUps = () => {
     }),
     ...orphanCallbacks.map((cb) => {
       const c = findContact(cb.vendor_id);
+      const isFollowUp = cb.outcome === 'follow_up';
       return {
         kind: 'callback',
         id: 'cb' + cb.id,
         callId: cb.id,
-        title: 'Callback requested',
+        title: isFollowUp ? 'Follow up after call' : 'Callback requested',
         contact: c,
         contactName: c ? c.name : (cb.vendor_name || '—'),
-        due: cb.created_at + dayMs, // soft-due 1 day after the request
-        priority: 'high',
+        due: cb.created_at + dayMs, // soft-due 1 day after the call
+        priority: isFollowUp ? 'med' : 'high',
         type: 'call',
         owner: cb.caller || '—',
         notes: cb.notes,

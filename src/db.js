@@ -217,6 +217,7 @@ ensureColumn('vendors', 'ai_note', 'TEXT');
 ensureColumn('vendors', 'owner', 'TEXT');
 ensureColumn('vendors', 'company_id', 'INTEGER');
 ensureColumn('vendors', 'instagram', 'TEXT');
+ensureColumn('calls', 'caller', 'TEXT');
 ensureColumn('vendors', 'address', 'TEXT');
 ensureColumn('vendors', 'city', 'TEXT');
 ensureColumn('vendors', 'hours', 'TEXT');
@@ -605,5 +606,31 @@ function seedThreeData() {
 // Auto-seed disabled — you have your own real contacts. To re-seed demo data,
 // run: node -e "require('./src/db'); /* call seedThreeData manually */"
 // try { seedThreeData(); } catch (e) { console.error('[db] seed failed:', e.message); }
+
+// Stages are required system data (the kanban has no columns without them) —
+// always ensure the default set exists, independent of demo seeding. Also
+// backfill any orphaned deals that have no stage so they appear in column 1.
+function ensureStages() {
+  const count = db.prepare('SELECT COUNT(*) AS c FROM stages').get().c;
+  if (count === 0) {
+    const ins = db.prepare('INSERT INTO stages (name, color, probability, position, is_won, is_lost) VALUES (?, ?, ?, ?, ?, ?)');
+    const defaults = [
+      ['Discovery',   '#A8A29E',  10, 1, 0, 0],
+      ['Qualified',   '#D4A373',  25, 2, 0, 0],
+      ['Proposal',    '#E07A5F',  50, 3, 0, 0],
+      ['Negotiation', '#3D5A80',  75, 4, 0, 0],
+      ['Closed Won',  '#588157', 100, 5, 1, 0],
+      ['Closed Lost', '#5C5C5C',   0, 6, 0, 1],
+    ];
+    db.transaction(() => defaults.forEach((s) => ins.run(...s)))();
+    console.log('[db] inserted default pipeline stages');
+  }
+  const firstStage = db.prepare('SELECT id FROM stages WHERE is_won = 0 AND is_lost = 0 ORDER BY position ASC LIMIT 1').get();
+  if (firstStage) {
+    const r = db.prepare('UPDATE deals SET stage_id = ? WHERE stage_id IS NULL').run(firstStage.id);
+    if (r.changes) console.log(`[db] backfilled stage_id on ${r.changes} orphaned deal(s)`);
+  }
+}
+try { ensureStages(); } catch (e) { console.error('[db] ensureStages failed:', e.message); }
 
 module.exports = db;

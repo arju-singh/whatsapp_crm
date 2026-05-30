@@ -100,44 +100,114 @@ router.get('/stats/summary', (req, res) => {
 });
 
 const IMPORT_COLUMNS = ['name', 'phone', 'company', 'email', 'category', 'tags', 'notes', 'title', 'address', 'city', 'hours'];
-const TEMPLATE_SAMPLES = [
-  {
-    name: 'Acme Traders',
-    phone: '+91 98765 43210',
-    company: 'Acme Traders Pvt Ltd',
-    email: 'contact@acme.example',
-    category: 'wholesale',
-    tags: 'priority,reorder',
-    notes: 'Met at trade show — follow up next week',
-    title: 'Owner',
-    address: '12 MG Road',
-    city: 'Bengaluru',
-    hours: 'Mon–Sat 10:00–19:00',
+
+// Multiple template variants — each defines what columns appear and 1-2 sample rows.
+// Importers still recognise ALL columns by name regardless of which template the
+// file was generated from.
+const TEMPLATES = {
+  basic: {
+    label: 'Basic — name + phone',
+    description: 'Just the essentials. Best for quick bulk add.',
+    columns: ['name', 'phone'],
+    samples: [
+      { name: 'Riya Sharma', phone: '+91 98765 43210' },
+      { name: 'Karan Mehta', phone: '+91 91234 56789' },
+    ],
   },
-];
+  standard: {
+    label: 'Standard — full contact',
+    description: 'Everything: company, email, address, hours, notes. Best for new customer onboarding.',
+    columns: IMPORT_COLUMNS,
+    samples: [{
+      name: 'Acme Traders', phone: '+91 98765 43210',
+      company: 'Acme Traders Pvt Ltd', email: 'contact@acme.example',
+      category: 'wholesale', tags: 'priority,reorder',
+      notes: 'Met at trade show — follow up next week',
+      title: 'Owner', address: '12 MG Road', city: 'Bengaluru',
+      hours: 'Mon–Sat 10:00–19:00',
+    }],
+  },
+  'pet-store': {
+    label: 'Pet store / Vet',
+    description: 'Pet-business focused — category=clinic/shop/vet, hours, address.',
+    columns: ['name', 'phone', 'company', 'category', 'address', 'city', 'hours', 'notes', 'tags'],
+    samples: [
+      {
+        name: 'Petscare Hisar', phone: '+91 99887 76655',
+        company: 'Petscare Hisar', category: 'pet-store',
+        address: 'Sector 14', city: 'Hisar', hours: 'Mon–Sun 09:00–21:00',
+        notes: 'Stocks premium food brands; potential reseller',
+        tags: 'pet,priority',
+      },
+      {
+        name: 'Dr. Reema Vet Clinic', phone: '+91 98112 33445',
+        company: 'Reema Pet Hospital', category: 'vet',
+        address: 'NH-44 Bypass', city: 'Chandigarh', hours: 'Mon–Sat 10:00–20:00',
+        notes: 'Specialises in surgery; interested in equipment',
+        tags: 'vet,doctor',
+      },
+    ],
+  },
+  'wa-bulk': {
+    label: 'WhatsApp bulk send',
+    description: 'Minimal columns for bulk WA campaigns. Just name + phone — fast to fill.',
+    columns: ['name', 'phone', 'tags'],
+    samples: [
+      { name: 'Aman', phone: '+91 99887 76655', tags: 'campaign-may' },
+      { name: 'Bhavna', phone: '+91 98109 87654', tags: 'campaign-may' },
+    ],
+  },
+  sales: {
+    label: 'Sales leads',
+    description: 'Sales pipeline data — title, company, notes, tags for qualification.',
+    columns: ['name', 'phone', 'company', 'title', 'email', 'category', 'tags', 'notes'],
+    samples: [{
+      name: 'Devika Rao', phone: '+91 98765 11122',
+      company: 'Aperture Labs', title: 'CTO',
+      email: 'devika@aperture.example', category: 'software',
+      tags: 'enterprise,decision-maker',
+      notes: 'Demo scheduled — interested in API tier',
+    }],
+  },
+};
+
+router.get('/templates', (req, res) => {
+  res.json(Object.entries(TEMPLATES).map(([key, t]) => ({
+    key, label: t.label, description: t.description, columns: t.columns,
+  })));
+});
+
+function pickTemplate(req) {
+  const key = req.query.type || 'standard';
+  return TEMPLATES[key] || TEMPLATES.standard;
+}
 
 router.get('/template.xlsx', (req, res) => {
-  const rows = [IMPORT_COLUMNS, ...TEMPLATE_SAMPLES.map((s) => IMPORT_COLUMNS.map((c) => s[c] || ''))];
+  const tpl = pickTemplate(req);
+  const cols = tpl.columns;
+  const rows = [cols, ...tpl.samples.map((s) => cols.map((c) => s[c] || ''))];
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = IMPORT_COLUMNS.map((c) => ({ wch: c === 'notes' || c === 'address' ? 28 : Math.max(c.length + 2, 14) }));
+  ws['!cols'] = cols.map((c) => ({ wch: c === 'notes' || c === 'address' ? 28 : Math.max(c.length + 2, 14) }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Vendors');
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   res.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('content-disposition', 'attachment; filename="vendors-template.xlsx"');
+  res.setHeader('content-disposition', `attachment; filename="vendors-${req.query.type || 'standard'}.xlsx"`);
   res.send(buf);
 });
 
 router.get('/template.csv', (req, res) => {
+  const tpl = pickTemplate(req);
+  const cols = tpl.columns;
   const esc = (v) => {
     if (v == null) return '';
     const s = String(v);
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const lines = [IMPORT_COLUMNS.join(',')];
-  for (const s of TEMPLATE_SAMPLES) lines.push(IMPORT_COLUMNS.map((c) => esc(s[c] || '')).join(','));
+  const lines = [cols.join(',')];
+  for (const s of tpl.samples) lines.push(cols.map((c) => esc(s[c] || '')).join(','));
   res.setHeader('content-type', 'text/csv; charset=utf-8');
-  res.setHeader('content-disposition', 'attachment; filename="vendors-template.csv"');
+  res.setHeader('content-disposition', `attachment; filename="vendors-${req.query.type || 'standard'}.csv"`);
   res.send(lines.join('\n'));
 });
 

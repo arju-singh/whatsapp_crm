@@ -46,6 +46,16 @@ const Users = () => {
       load();
     } catch (e) { alert(e.message); }
   };
+  const resetPassword = async (user) => {
+    const next = prompt(`Set a new password for ${user.name} (+${user.phone}). Minimum 6 characters.\n\nThey will be signed out of any active sessions.`);
+    if (next == null) return;
+    if (next.length < 6) { alert('Password must be at least 6 characters.'); return; }
+    try {
+      await api('/api/users/' + user.id, { method: 'PUT', body: { password: next } });
+      alert(`Password set. New password: ${next}\nShare it with them and ask them to change it on first login.`);
+      load();
+    } catch (e) { alert(e.message); }
+  };
 
   const pending = (rows || []).filter((u) => !u.active);
   const active = (rows || []).filter((u) => u.active);
@@ -116,7 +126,8 @@ const Users = () => {
               <th>Active</th>
               <th>Last login</th>
               <th>Created</th>
-              <th style={{ width: 120 }}></th>
+              <th>Password</th>
+              <th style={{ width: 160 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -135,6 +146,17 @@ const Users = () => {
                 <td>{u.active ? <span style={{ color: '#588157' }}>● Yes</span> : <span style={{ color: 'var(--muted)' }}>○ No</span>}</td>
                 <td style={{ fontSize: 11, color: 'var(--muted)' }}>{u.last_login_at ? humanAge(u.last_login_at) + ' ago' : '—'}</td>
                 <td style={{ fontSize: 11, color: 'var(--muted)' }}>{u.created_at ? humanAge(u.created_at) + ' ago' : '—'}</td>
+                <td>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>•••••••</span>
+                  {isSuper && (
+                    <button
+                      className="btn sm"
+                      style={{ marginLeft: 6, fontSize: 11 }}
+                      title="Set a new password for this user"
+                      onClick={() => resetPassword(u)}
+                    >Reset</button>
+                  )}
+                </td>
                 <td>
                   {isSuper && (
                     <div className="row" style={{ gap: 6 }}>
@@ -156,7 +178,7 @@ const Users = () => {
               </tr>
             ))}
             {rows && active.length === 0 && (
-              <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No active users yet.</td></tr>
+              <tr><td colSpan="9" style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>No active users yet.</td></tr>
             )}
           </tbody>
         </table>

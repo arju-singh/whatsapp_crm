@@ -81,6 +81,16 @@ app.post('/api/wa/reinit', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// Wipe the LocalAuth session and force a fresh QR. Use this when reconnect
+// keeps landing in "authenticated but not ready" — the saved session is wedged.
+app.post('/api/wa/logout', async (req, res) => {
+  try {
+    wa.safeReinit('manual logout via API', { wipeSession: true });
+    res.json({ ok: true, status: wa.getStatus() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.post('/api/wa/import-contacts', async (req, res) => {
   try {
     const onlySaved = req.body && req.body.onlySaved !== false;

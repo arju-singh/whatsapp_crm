@@ -9,12 +9,12 @@ router.get('/funnel', (req, res) => {
     stage: s.name,
     count: db.prepare('SELECT COUNT(*) AS c FROM deals WHERE stage_id = ?').get(s.id).c,
   }));
-  // Synthetic top-of-funnel from contacts
   const contactCount = db.prepare('SELECT COUNT(*) AS c FROM vendors').get().c;
+  const repliedCount = db.prepare(`SELECT COUNT(*) AS c FROM vendors WHERE status = 'replied'`).get().c;
   return res.json([
-    { stage: 'Leads', count: Math.max(contactCount * 150, 1842) },
-    { stage: 'MQL', count: Math.max(contactCount * 50, 612) },
-    { stage: 'SQL', count: Math.max(contactCount * 20, 244) },
+    { stage: 'Leads', count: contactCount },
+    { stage: 'Contacted', count: db.prepare(`SELECT COUNT(*) AS c FROM vendors WHERE status IN ('contacted','replied','won','lost')`).get().c },
+    { stage: 'Replied', count: repliedCount },
     ...counts,
   ]);
 });
@@ -36,8 +36,7 @@ router.get('/revenue', (req, res) => {
     WHERE s.is_won = 1 GROUP BY m
   `).all();
   const wonMap = Object.fromEntries(won.map((r) => [r.m, r.amt]));
-  // Target: smoothed mid-bucket, configurable later. Rough $200k/month placeholder.
-  res.json(months.map((m) => ({ m: m.label, booked: wonMap[m.key] || 0, target: 200000 })));
+  res.json(months.map((m) => ({ m: m.label, booked: wonMap[m.key] || 0, target: 0 })));
 });
 
 router.get('/sources', (req, res) => {
@@ -79,19 +78,7 @@ router.get('/heatmap', (req, res) => {
   });
   let max = 0;
   for (const r of rows) for (const v of r) if (v > max) max = v;
-  // Normalize to 0..1; if no inbound messages yet, return a believable synthetic pattern.
-  if (!max) {
-    for (let d = 0; d < 7; d++) {
-      for (let h = 0; h < 24; h++) {
-        let v = 0;
-        if (h >= 8 && h <= 18) v = 0.2 + ((d * 31 + h * 7) % 10) / 20;
-        if (h >= 9 && h <= 11) v += 0.25;
-        if (h >= 13 && h <= 15) v += 0.2;
-        if (d >= 5) v *= 0.3;
-        rows[d][h] = Math.min(1, v);
-      }
-    }
-  } else {
+  if (max) {
     for (let d = 0; d < 7; d++) for (let h = 0; h < 24; h++) rows[d][h] = +(rows[d][h] / max).toFixed(2);
   }
   res.json(rows);
@@ -123,11 +110,14 @@ router.get('/kpis', (req, res) => {
   const avgCycle = won.length ? Math.round(won.reduce((s, d) => s + (d.days || 0), 0) / won.length) : 0;
   const totalClosed = db.prepare(`SELECT COUNT(*) AS c FROM deals d JOIN stages s ON s.id = d.stage_id WHERE s.is_won = 1 OR s.is_lost = 1`).get().c;
   const winRate = totalClosed ? Math.round((won.length / totalClosed) * 100) : 0;
+  const totalActivities = db.prepare(`SELECT COUNT(*) AS c FROM messages`).get().c
+    + db.prepare(`SELECT COUNT(*) AS c FROM calls`).get().c;
+  const totalDeals = db.prepare(`SELECT COUNT(*) AS c FROM deals`).get().c;
   res.json({
     avg_deal_size: avgDeal,
-    sales_cycle_days: Math.max(1, avgCycle),
+    sales_cycle_days: avgCycle,
     win_rate: winRate,
-    activities_per_deal: 18.2,
+    activities_per_deal: totalDeals ? +(totalActivities / totalDeals).toFixed(1) : 0,
   });
 });
 

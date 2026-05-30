@@ -203,32 +203,45 @@ client.on('message', async (msg) => {
 
 const SESSION_DIR = path.join(__dirname, '..', '.wwebjs_auth', 'session-whatsapp-crm');
 
-// Chromium leaves Singleton{Lock,Cookie,Socket} symlinks in the userDataDir if
-// it crashes or is killed mid-flight. The Lock target ends in `-<pid>`; if that
-// PID is gone, the lock is stale and blocks the next launch with
-// "browser is already running". Removing them lets init() re-claim the dir.
-function clearStaleSingletons() {
+// Kill any orphan Chromium processes that have our session dir in their args.
+// Returns the number of procs killed. Used to recover from "browser is already
+// running" errors when an old puppeteer Chromium is still holding the userDataDir.
+function killOrphanChromium() {
+  const { execSync } = require('child_process');
+  let killed = 0;
   try {
-    const target = fs.readlinkSync(path.join(SESSION_DIR, 'SingletonLock'));
-    const pid = parseInt(target.split('-').pop(), 10);
-    if (Number.isFinite(pid)) {
-      try { process.kill(pid, 0); return; } catch (_) {}
+    const out = execSync(`pgrep -f "${SESSION_DIR.replace(/[/]/g, '\\/')}" 2>/dev/null || true`, { encoding: 'utf8' });
+    const pids = out.trim().split('\n').filter(Boolean).map((s) => parseInt(s, 10)).filter((p) => p && p !== process.pid);
+    for (const pid of pids) {
+      try { process.kill(pid, 'SIGKILL'); killed++; } catch (_) {}
     }
-  } catch (_) { return; }
+    if (killed) console.log(`[wa] killed ${killed} orphan chromium proc(s)`);
+  } catch (_) {}
+  return killed;
+}
+
+// Remove the Singleton symlinks Chromium leaves behind. Safe to call unconditionally
+// once we've already killed any owners via killOrphanChromium.
+function clearStaleSingletons() {
+  let cleared = 0;
   for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
-    try { fs.unlinkSync(path.join(SESSION_DIR, name)); } catch (_) {}
+    try { fs.unlinkSync(path.join(SESSION_DIR, name)); cleared++; } catch (_) {}
   }
-  console.log('[wa] cleared stale Chromium singleton lock');
+  if (cleared) console.log('[wa] cleared chromium singleton files');
 }
 
 let initAttempts = 0;
 function init() {
   initAttempts++;
+  killOrphanChromium();
   clearStaleSingletons();
   console.log(`[wa] init attempt #${initAttempts}`);
   client.initialize().catch((e) => {
     console.error('[wa] init error:', e.message);
-    if (/browser is already running/i.test(e.message)) clearStaleSingletons();
+    if (/browser is already running/i.test(e.message)) {
+      killOrphanChromium();
+      clearStaleSingletons();
+    }
     if (initAttempts < 10) {
       const delay = Math.min(60_000, 2000 * Math.pow(2, initAttempts - 1));
       console.log(`[wa] retrying in ${delay}ms...`);
@@ -245,11 +258,14 @@ function isFrameError(err) {
 }
 
 let reinitInFlight = false;
-async function safeReinit(reason) {
+async function safeReinit(reason, { wipeSession = false } = {}) {
   if (reinitInFlight) return;
   reinitInFlight = true;
-  console.warn('[wa] reinit triggered:', reason);
+  console.warn('[wa] reinit triggered:', reason, wipeSession ? '(wiping session)' : '');
   state.ready = false;
+  state.qr = null;
+  state.qrDataUrl = null;
+  state.info = null;
   queue.length = 0; // ready handler will re-queue 'queued' rows from DB
   // Grab the Chromium child before destroy() — destroy() detaches it from the client.
   const browserProc = client.pupBrowser?.process?.();
@@ -269,13 +285,39 @@ async function safeReinit(reason) {
   if (browserProc && browserProc.pid && !browserProc.killed) {
     try { browserProc.kill('SIGKILL'); } catch (_) {}
   }
+  killOrphanChromium();
   clearStaleSingletons();
+  if (wipeSession) {
+    try {
+      fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+      console.log('[wa] wiped session dir:', SESSION_DIR);
+    } catch (e) {
+      console.warn('[wa] failed to wipe session dir:', e.message);
+    }
+  }
   initAttempts = 0;
   setTimeout(() => {
     reinitInFlight = false;
     init();
   }, 3000);
 }
+
+// Watchdog: if `authenticated` fires but `ready` doesn't follow within 90s,
+// the session is wedged on a sync/loading screen. Auto-recover once by wiping
+// the session so the next init forces a fresh QR scan.
+let authWatchdog = null;
+client.on('authenticated', () => {
+  if (authWatchdog) clearTimeout(authWatchdog);
+  authWatchdog = setTimeout(() => {
+    if (!state.ready) {
+      console.warn('[wa] authenticated but not ready after 90s — wiping session and re-initializing');
+      safeReinit('authenticated-but-not-ready watchdog', { wipeSession: true });
+    }
+  }, 90_000);
+});
+client.on('ready', () => {
+  if (authWatchdog) { clearTimeout(authWatchdog); authWatchdog = null; }
+});
 
 function getStatus() {
   return {
@@ -484,7 +526,14 @@ async function importContacts({ onlySaved = true } = {}) {
     }
   });
   tx(all);
-  return { total: all.length, inserted, updated, skipped };
+  // Fire-and-forget enrichment in the background so profile pics + About text
+  // populate automatically without making the import call wait.
+  setImmediate(() => {
+    enrichContacts({ limit: 5000, onlyMissing: true, delayMs: 200 })
+      .then((r) => console.log('[wa] auto-enrich after import:', r))
+      .catch((e) => console.error('[wa] auto-enrich failed:', e.message));
+  });
+  return { total: all.length, inserted, updated, skipped, enrichmentStarted: true };
 }
 
 const AVATAR_DIR = path.join(__dirname, '..', 'data', 'avatars');

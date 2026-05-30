@@ -28,8 +28,15 @@ const Sidebar = ({ route, setRoute, openCmd, openWaQr }) => {
     const s = window.STAGES.find((x) => x.id === d.stage);
     return s && !s.isWon && !s.isLost;
   }).length;
-  const taskCount = (window.TASKS || []).filter((t) => !t.done).length;
+  const openTasks = (window.TASKS || []).filter((t) => !t.done);
+  const taskCount = openTasks.length;
   const ticketCount = (window.TICKETS || []).filter((t) => t.status !== 'solved').length;
+  // Follow-ups badge: open tasks + orphan follow-up calls (no task on that vendor yet).
+  const taskVendorIds = new Set(openTasks.map((t) => t.raw_vendor_id).filter(Boolean));
+  const orphanFollowUpCalls = (window.CALLS || []).filter(
+    (c) => (c.disposition === 'callback_request' || c.outcome === 'follow_up') && !taskVendorIds.has(c.vendor_id)
+  ).length;
+  const followUpCount = taskCount + orphanFollowUpCalls;
   const inboxBadge = window.NOTIFICATIONS_UNREAD || 0;
   const me = (window.TEAM || []).find((u) => u.name && u.name.startsWith('You'));
 
@@ -42,7 +49,7 @@ const Sidebar = ({ route, setRoute, openCmd, openWaQr }) => {
     { id: 'companies', label: 'Companies', icon: 'building' },
     { id: 'deals', label: 'Pipeline', icon: 'pipeline', badge: dealCount || null },
     { id: 'callLogs', label: 'Call logs', icon: 'phone' },
-    { id: 'followUps', label: 'Follow-ups', icon: 'bell' },
+    { id: 'followUps', label: 'Follow-ups', icon: 'bell', badge: followUpCount || null },
     { id: 'tasks', label: 'Tasks', icon: 'check-list', badge: taskCount || null },
     { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   ];

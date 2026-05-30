@@ -233,7 +233,7 @@ window.STORE = STORE;
 async function loadAll() {
   const [
     meRaw,
-    companiesRaw, contactsRaw, stagesRaw, dealsRaw, tasksRaw, ticketsRaw,
+    companiesRaw, contactsRaw, stagesRaw, dealsRaw, tasksRaw, callsRaw, ticketsRaw,
     automationsRaw, teamRaw, notifsRaw, campaignsRaw, calendarRaw,
     revenueRaw, sourcesRaw, funnelRaw, heatmapRaw, kpiRaw, leaderboardRaw,
     pipelineTrendRaw, summaryRaw, insightsRaw, waStatus,
@@ -244,6 +244,7 @@ async function loadAll() {
     api('/api/stages'),
     api('/api/deals'),
     api('/api/tasks?scope=all&limit=500'),
+    api('/api/calls?limit=500'),
     api('/api/tickets'),
     api('/api/automations'),
     api('/api/team'),
@@ -268,6 +269,7 @@ async function loadAll() {
   window.STAGES = stagesRaw.map(adaptStage);
   window.DEALS = dealsRaw.map(adaptDeal);
   window.TASKS = tasksRaw.map(adaptTask);
+  window.CALLS = callsRaw || [];
   window.TICKETS = ticketsRaw.map(adaptTicket);
   window.AUTOMATIONS = automationsRaw.map(adaptAutomation);
   window.TEAM = teamRaw.map(adaptTeam);

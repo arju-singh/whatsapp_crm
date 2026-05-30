@@ -61,6 +61,65 @@ const EditableCell = ({ value, save, placeholder, mono, prefix, suffix, cellStyl
   );
 };
 
+const TemplatePicker = () => {
+  const [open, setOpen] = React.useState(false);
+  const [templates, setTemplates] = React.useState(null);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (templates) return;
+    api('/api/vendors/templates').then(setTemplates).catch(() => setTemplates([]));
+  }, [templates]);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  const download = (key, ext) => {
+    setOpen(false);
+    window.location.href = `/api/vendors/template.${ext}?type=${encodeURIComponent(key)}`;
+  };
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="btn" onClick={() => setOpen((v) => !v)} title="Pick a template format">
+        <Icon name="doc" size={12} />Excel template <Icon name="caret-down" size={10} />
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
+          background: 'var(--card)', border: '1px solid var(--rule)',
+          borderRadius: 8, padding: 6, minWidth: 320,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+        }}>
+          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '8px 10px 4px' }}>
+            Choose a template format
+          </div>
+          {(templates || []).map((t) => (
+            <div key={t.key} style={{ padding: '8px 10px', borderRadius: 6, cursor: 'pointer' }}
+                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--hover)'}
+                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{t.label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>{t.description}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }} className="mono">{t.columns.join(' · ')}</div>
+                </div>
+                <div className="row" style={{ gap: 4 }}>
+                  <button className="btn sm" onClick={() => download(t.key, 'xlsx')} title="Download Excel">.xlsx</button>
+                  <button className="btn sm" onClick={() => download(t.key, 'csv')} title="Download CSV">.csv</button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {templates && templates.length === 0 && (
+            <div style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>Loading templates…</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ContactRow = ({ c, onOpen, sno, isSelected, onSelectChange }) => {
   const linked = getCompany(c.companyId);
   const co = linked || {
@@ -150,12 +209,6 @@ const ContactRow = ({ c, onOpen, sno, isSelected, onSelectChange }) => {
       />
 
       <EditableCell
-        value={c.title}
-        save={saveField('title')}
-        placeholder="Add person…"
-      />
-
-      <EditableCell
         value={c.address}
         save={saveField('address')}
         placeholder="Address"
@@ -176,21 +229,51 @@ const ContactRow = ({ c, onOpen, sno, isSelected, onSelectChange }) => {
         inputStyle={{ color: 'var(--ink-3)' }}
       />
 
-      <EditableCell
-        value={c.hours}
-        save={saveField('hours')}
-        placeholder="Hours"
-        mono
-        cellStyle={{ whiteSpace: 'nowrap' }}
-        inputStyle={{ fontSize: 11, color: 'var(--ink-3)' }}
-      />
+      <CalledToggle contact={c} />
 
-      <td style={{ maxWidth: 260, color: 'var(--ink-3)', fontSize: 11 }} title={c.aboutText || ''}>
-        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {c.aboutText || <span style={{ color: 'var(--muted)' }}>—</span>}
-        </div>
-      </td>
     </tr>
+  );
+};
+
+// Inline toggle in the Leads table. Visual state derived from vendor.status —
+// 'new' = not-called (outlined), anything else = called (filled). Click flips
+// between 'new' and 'contacted'; preserves 'replied'/'won'/'lost' if those are set.
+const CalledToggle = ({ contact }) => {
+  const [busy, setBusy] = React.useState(false);
+  const isCalled = contact.status && contact.status !== 'new';
+  const toggle = async (e) => {
+    e.stopPropagation();
+    setBusy(true);
+    try {
+      const nextStatus = isCalled ? 'new' : 'contacted';
+      await api(`/api/vendors/${contact.raw_id}`, { method: 'PUT', body: { status: nextStatus } });
+      contact.status = nextStatus;
+      window.dispatchEvent(new CustomEvent('store:change'));
+    } catch (err) {
+      alert('Failed: ' + (err.message || err));
+    }
+    setBusy(false);
+  };
+  return (
+    <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        title={isCalled ? 'Marked as called — click to mark not called' : 'Not called yet — click to mark called'}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600,
+          border: '1.5px solid ' + (isCalled ? '#2A6F4B' : 'var(--rule)'),
+          background: isCalled ? '#2A6F4B' : 'transparent',
+          color: isCalled ? 'white' : 'var(--muted)',
+          cursor: 'pointer', opacity: busy ? 0.5 : 1, transition: 'all 0.12s',
+        }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: isCalled ? 'white' : 'var(--rule)' }}></span>
+        {isCalled ? 'Called' : 'Not called'}
+      </button>
+    </td>
   );
 };
 
@@ -355,7 +438,7 @@ const Contacts = () => {
   const bizCount = all.filter((c) => c.isBusiness).length;
   const allTags = Array.from(new Set(all.flatMap((c) => c.tags))).filter(Boolean).slice(0, 10);
   const filtered = all.filter((c) => {
-    if (q && !(c.name + ' ' + c.email + ' ' + c.title + ' ' + c.phone + ' ' + c.address + ' ' + c.city + ' ' + c.businessType + ' ' + (c.aboutText || '')).toLowerCase().includes(q.toLowerCase())) return false;
+    if (q && !(c.name + ' ' + c.email + ' ' + c.title + ' ' + c.phone + ' ' + c.address + ' ' + c.city + ' ' + c.businessType).toLowerCase().includes(q.toLowerCase())) return false;
     if (tag !== 'all' && !c.tags.includes(tag)) return false;
     if (bizOnly && !c.isBusiness) return false;
     return true;
@@ -383,7 +466,7 @@ const Contacts = () => {
             </button>
           )}
           <button className="btn" onClick={() => importFromWhatsApp()}><Icon name="phone" size={12} />Import from WhatsApp</button>
-          <button className="btn" onClick={() => window.location.href = '/api/vendors/template.xlsx'} title="Download a blank Excel template with the columns and a sample row"><Icon name="doc" size={12} />Excel template</button>
+          <TemplatePicker />
           <button className="btn" onClick={() => importVendorsFlow()}><Icon name="link" size={12} />Import Excel/CSV</button>
           <button className="btn" onClick={() => window.location.href = '/api/vendors/export.xlsx'}><Icon name="doc" size={12} />Export</button>
           <button className="btn primary" onClick={() => window.openNewContact && window.openNewContact()}><Icon name="plus" size={12} />New lead</button>
@@ -430,12 +513,10 @@ const Contacts = () => {
                 <th style={{ width: 48, textAlign: 'right' }}>S.No</th>
                 <th>Store name</th>
                 <th style={{ whiteSpace: 'nowrap' }}>Phone</th>
-                <th>Person</th>
                 <th>Address</th>
                 <th>City</th>
                 <th>Type</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Hours</th>
-                <th>About</th>
+                <th style={{ whiteSpace: 'nowrap' }}>Called</th>
               </tr>
             </thead>
             <tbody>
