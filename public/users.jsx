@@ -249,10 +249,10 @@ const UserModal = ({ user, onClose, onSaved }) => {
           {isNew ? 'Add user' : `Edit ${user.name}`}
         </h3>
 
-        <Field label="Name">
+        <AccountField label="Name">
           <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Full name" />
-        </Field>
-        <Field label="Phone (with country code)">
+        </AccountField>
+        <AccountField label="Phone (with country code)">
           <input
             value={form.phone}
             onChange={(e) => set('phone', e.target.value)}
@@ -261,29 +261,29 @@ const UserModal = ({ user, onClose, onSaved }) => {
             className="mono"
           />
           {!isNew && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Phone can't be changed after creation.</div>}
-        </Field>
-        <Field label={isNew ? 'Password' : 'New password (leave blank to keep current)'}>
+        </AccountField>
+        <AccountField label={isNew ? 'Password' : 'New password (leave blank to keep current)'}>
           <input
             type="password"
             value={form.password}
             onChange={(e) => set('password', e.target.value)}
             placeholder={isNew ? 'At least 6 characters' : '••••••'}
           />
-        </Field>
-        <Field label="Role">
+        </AccountField>
+        <AccountField label="Role">
           <select value={form.role} onChange={(e) => set('role', e.target.value)}>
             <option value="user">user</option>
             <option value="admin">admin</option>
             <option value="super_admin">super_admin</option>
           </select>
-        </Field>
+        </AccountField>
         {!isNew && (
-          <Field label="Active">
+          <AccountField label="Active">
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
               <input type="checkbox" checked={form.active} onChange={(e) => set('active', e.target.checked)} />
               Can sign in
             </label>
-          </Field>
+          </AccountField>
         )}
 
         {err && <div style={{ color: '#B73225', fontSize: 12, marginTop: 8 }}>{err}</div>}
@@ -348,9 +348,9 @@ const ChangePasswordModal = ({ onClose }) => {
           <div style={{ color: '#588157', fontSize: 13 }}>✓ Password changed. Other sessions have been signed out.</div>
         ) : (
           <>
-            <Field label="Current password"><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus /></Field>
-            <Field label="New password"><input type="password" value={next} onChange={(e) => setNext(e.target.value)} /></Field>
-            <Field label="Confirm new password"><input type="password" value={confirm2} onChange={(e) => setConfirm2(e.target.value)} /></Field>
+            <AccountField label="Current password"><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus /></AccountField>
+            <AccountField label="New password"><input type="password" value={next} onChange={(e) => setNext(e.target.value)} /></AccountField>
+            <AccountField label="Confirm new password"><input type="password" value={confirm2} onChange={(e) => setConfirm2(e.target.value)} /></AccountField>
             {err && <div style={{ color: '#B73225', fontSize: 12, marginTop: 8 }}>{err}</div>}
             <div className="row" style={{ gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
               <button className="btn" onClick={onClose} disabled={saving}>Cancel</button>
@@ -364,7 +364,7 @@ const ChangePasswordModal = ({ onClose }) => {
   );
 };
 
-const Field = ({ label, children }) => (
+const AccountField = ({ label, children }) => (
   <div style={{ marginBottom: 12 }}>
     <div style={{ fontSize: 11, color: 'var(--ink-2)', marginBottom: 4, fontWeight: 500 }}>{label}</div>
     {children}

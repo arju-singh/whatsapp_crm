@@ -3,6 +3,8 @@ const multer = require('multer');
 const { parse } = require('csv-parse/sync');
 const XLSX = require('xlsx');
 const db = require('../db');
+const { body, S } = require('../validate');
+const { orgFilter } = require('../tenancy');
 
 let phoneLib;
 try { phoneLib = require('libphonenumber-js'); } catch (_) {}
@@ -39,15 +41,15 @@ function validatePhone(p) {
 
 router.get('/', (req, res) => {
   const { q, status, category, limit = 1000000, offset = 0 } = req.query;
-  const filters = [];
-  const params = {};
+  const filters = [orgFilter()];
+  const params = { orgId: req.orgId };
   if (q) {
     filters.push('(name LIKE @q OR phone LIKE @q OR company LIKE @q OR email LIKE @q)');
     params.q = `%${q}%`;
   }
   if (status) { filters.push('status = @status'); params.status = status; }
   if (category) { filters.push('category = @category'); params.category = category; }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT * FROM vendors ${where}
     ORDER BY updated_at DESC LIMIT @limit OFFSET @offset
@@ -58,12 +60,12 @@ router.get('/', (req, res) => {
 
 router.get('/export.csv', (req, res) => {
   const { q, status, category } = req.query;
-  const filters = [];
-  const params = {};
+  const filters = [orgFilter()];
+  const params = { orgId: req.orgId };
   if (q) { filters.push('(name LIKE @q OR phone LIKE @q OR company LIKE @q OR email LIKE @q)'); params.q = `%${q}%`; }
   if (status) { filters.push('status = @status'); params.status = status; }
   if (category) { filters.push('category = @category'); params.category = category; }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`SELECT * FROM vendors ${where} ORDER BY updated_at DESC`).all(params);
   const cols = ['id', 'name', 'phone', 'company', 'email', 'category', 'tags', 'status', 'notes',
     'last_contacted_at', 'last_replied_at', 'total_sent', 'total_replied', 'created_at'];
@@ -90,12 +92,12 @@ router.get('/stats/summary', (req, res) => {
       SUM(CASE WHEN status = 'replied' THEN 1 ELSE 0 END) AS replied,
       SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) AS won,
       SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) AS lost
-    FROM vendors
-  `).get();
+    FROM vendors WHERE ${orgFilter()}
+  `).get({ orgId: req.orgId });
   const byCategory = db.prepare(`
     SELECT COALESCE(category, 'uncategorized') AS category, COUNT(*) AS c
-    FROM vendors GROUP BY category ORDER BY c DESC
-  `).all();
+    FROM vendors WHERE ${orgFilter()} GROUP BY category ORDER BY c DESC
+  `).all({ orgId: req.orgId });
   res.json({ totals, byCategory });
 });
 
@@ -213,12 +215,12 @@ router.get('/template.csv', (req, res) => {
 
 router.get('/export.xlsx', (req, res) => {
   const { q, status, category } = req.query;
-  const filters = [];
-  const params = {};
+  const filters = [orgFilter()];
+  const params = { orgId: req.orgId };
   if (q) { filters.push('(name LIKE @q OR phone LIKE @q OR company LIKE @q OR email LIKE @q)'); params.q = `%${q}%`; }
   if (status) { filters.push('status = @status'); params.status = status; }
   if (category) { filters.push('category = @category'); params.category = category; }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`SELECT * FROM vendors ${where} ORDER BY updated_at DESC`).all(params);
   const cols = ['id', 'name', 'phone', 'company', 'email', 'category', 'tags', 'status', 'notes',
     'title', 'address', 'city', 'hours',
@@ -236,37 +238,54 @@ router.get('/export.xlsx', (req, res) => {
 });
 
 router.get('/:id', (req, res) => {
-  const v = db.prepare('SELECT * FROM vendors WHERE id = ?').get(req.params.id);
+  const v = db.prepare(`SELECT * FROM vendors WHERE id = @id AND ${orgFilter()}`)
+    .get({ id: req.params.id, orgId: req.orgId });
   if (!v) return res.status(404).json({ error: 'not_found' });
+  // Children inherit the vendor's org; still filter on org + soft-delete defensively.
   const messages = db.prepare(`
-    SELECT * FROM messages WHERE vendor_id = ? ORDER BY created_at DESC LIMIT 200
-  `).all(req.params.id);
+    SELECT * FROM messages WHERE vendor_id = @id AND ${orgFilter()} ORDER BY created_at DESC LIMIT 200
+  `).all({ id: req.params.id, orgId: req.orgId });
   const calls = db.prepare(`
-    SELECT * FROM calls WHERE vendor_id = ? ORDER BY created_at DESC LIMIT 100
-  `).all(req.params.id);
+    SELECT * FROM calls WHERE vendor_id = @id AND ${orgFilter()} ORDER BY created_at DESC LIMIT 100
+  `).all({ id: req.params.id, orgId: req.orgId });
   const tasks = db.prepare(`
-    SELECT * FROM tasks WHERE vendor_id = ? ORDER BY completed ASC, due_at ASC NULLS LAST, created_at DESC LIMIT 50
-  `).all(req.params.id);
+    SELECT * FROM tasks WHERE vendor_id = @id AND ${orgFilter()} ORDER BY completed ASC, due_at ASC NULLS LAST, created_at DESC LIMIT 50
+  `).all({ id: req.params.id, orgId: req.orgId });
   const pendingFollowups = db.prepare(`
     SELECT f.*, r.name AS rule_name FROM followups f
     JOIN followup_rules r ON r.id = f.rule_id
-    WHERE f.vendor_id = ? AND f.status = 'pending'
+    WHERE f.vendor_id = @id AND f.status = 'pending' AND ${orgFilter('f')}
     ORDER BY f.scheduled_at ASC
-  `).all(req.params.id);
+  `).all({ id: req.params.id, orgId: req.orgId });
   res.json({ vendor: v, messages, calls, tasks, pendingFollowups });
 });
 
-router.post('/', (req, res) => {
+const vendorBodySchema = {
+  name: S.string({ maxLength: 200 }),
+  phone: S.string({ maxLength: 32 }),
+  company: S.string({ maxLength: 200 }),
+  email: S.email({ maxLength: 254 }),
+  category: S.string({ maxLength: 200 }),
+  tags: S.string({ maxLength: 500 }),
+  notes: S.text(),
+  status: S.string({ maxLength: 60 }),
+  title: S.string({ maxLength: 200 }),
+  address: S.string({ maxLength: 300 }),
+  city: S.string({ maxLength: 200 }),
+  hours: S.string({ maxLength: 200 }),
+};
+
+router.post('/', body(vendorBodySchema), (req, res) => {
   const { name, phone, company, email, category, tags, notes, status, title, address, city, hours } = req.body;
   if (!name || !phone) return res.status(400).json({ error: 'name_and_phone_required' });
   const v = validatePhone(phone);
   if (!v.ok) return res.status(400).json({ error: 'invalid_phone', detail: v.reason, normalized: v.normalized });
   try {
     const r = db.prepare(`
-      INSERT INTO vendors (name, phone, company, email, category, tags, notes, status, title, address, city, hours)
-      VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'new'), ?, ?, ?, ?)
+      INSERT INTO vendors (organization_id, name, phone, company, email, category, tags, notes, status, title, address, city, hours)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'new'), ?, ?, ?, ?)
     `).run(
-      name, v.normalized,
+      req.orgId, name, v.normalized,
       company || name, // default company to store name
       email || null, category || null, tags || null, notes || null, status || null,
       title || null, address || null, city || null, hours || null,
@@ -281,10 +300,10 @@ router.post('/', (req, res) => {
   }
 });
 
-router.put('/:id', (req, res) => {
+router.put('/:id', body(vendorBodySchema), (req, res) => {
   const allowed = ['name', 'phone', 'company', 'email', 'category', 'tags', 'notes', 'status', 'title', 'address', 'city', 'hours'];
   const sets = [];
-  const params = { id: req.params.id, updated_at: Date.now() };
+  const params = { id: req.params.id, orgId: req.orgId, updated_at: Date.now() };
   for (const k of allowed) {
     if (req.body[k] !== undefined) {
       sets.push(`${k} = @${k}`);
@@ -293,12 +312,14 @@ router.put('/:id', (req, res) => {
   }
   if (!sets.length) return res.json({ ok: true });
   sets.push('updated_at = @updated_at');
-  db.prepare(`UPDATE vendors SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  db.prepare(`UPDATE vendors SET ${sets.join(', ')} WHERE id = @id AND ${orgFilter()}`).run(params);
   res.json({ ok: true });
 });
 
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM vendors WHERE id = ?').run(req.params.id);
+  // Soft delete, org-scoped — the row is retained for audit but hidden everywhere.
+  db.prepare(`UPDATE vendors SET deleted_at = @now WHERE id = @id AND ${orgFilter()}`)
+    .run({ id: req.params.id, orgId: req.orgId, now: Date.now() });
   res.json({ ok: true });
 });
 
@@ -322,8 +343,8 @@ router.post('/import', upload.single('file'), (req, res) => {
     return res.status(400).json({ error: isExcel ? 'excel_parse_failed' : 'csv_parse_failed', detail: e.message });
   }
   const insert = db.prepare(`
-    INSERT INTO vendors (name, phone, company, email, category, tags, notes, title, address, city, hours)
-    VALUES (@name, @phone, @company, @email, @category, @tags, @notes, @title, @address, @city, @hours)
+    INSERT INTO vendors (organization_id, name, phone, company, email, category, tags, notes, title, address, city, hours)
+    VALUES (@orgId, @name, @phone, @company, @email, @category, @tags, @notes, @title, @address, @city, @hours)
     ON CONFLICT(phone) DO UPDATE SET
       name = excluded.name,
       company = COALESCE(excluded.company, vendors.company),
@@ -353,6 +374,7 @@ router.post('/import', upload.single('file'), (req, res) => {
       const v = validatePhone(rawPhone);
       if (!v.ok) { invalid++; continue; }
       insert.run({
+        orgId: req.orgId,
         name,
         phone: v.normalized,
         company: pick(r, 'company', 'Company'),
@@ -371,6 +393,15 @@ router.post('/import', upload.single('file'), (req, res) => {
   });
   const result = tx(records);
   res.json({ ...result, total: records.length });
+});
+
+router.post('/delete-bulk', body({ ids: S.array({ of: S.int({ min: 1 }), maxItems: 10000 }) }), (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids_array_required' });
+  const del = db.prepare(`UPDATE vendors SET deleted_at = @now WHERE id = @id AND ${orgFilter()}`);
+  const tx = db.transaction((rows) => { for (const id of rows) del.run({ id, orgId: req.orgId, now: Date.now() }); });
+  tx(ids);
+  res.json({ deleted: ids.length });
 });
 
 module.exports = router;

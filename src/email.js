@@ -169,4 +169,15 @@ function enqueue(emailId) {
   setImmediate(() => sendOne(emailId).catch((e) => console.error('[email] sendOne error', e)));
 }
 
-module.exports = { sendOne, processQueue, enqueue, isConfigured, renderTemplate };
+// Direct transactional send — for verification, password-reset, and support
+// emails. Bypasses the campaign `emails` table, suppressions, and daily caps
+// (these are operational, not marketing). Returns {ok} or throws if SMTP is
+// unconfigured so callers can degrade gracefully.
+async function sendRaw({ to, subject, html, text, replyTo }) {
+  if (!to) throw new Error('recipient required');
+  const tx = getTransporter();
+  const info = await tx.sendMail({ from: FROM, to, subject, html, text, replyTo });
+  return { ok: true, messageId: info.messageId || null };
+}
+
+module.exports = { sendOne, processQueue, enqueue, isConfigured, renderTemplate, sendRaw, PUBLIC_BASE };

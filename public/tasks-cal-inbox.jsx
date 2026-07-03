@@ -5,6 +5,7 @@
 const Tasks = () => {
   const { ready } = useStore();
   const [filter, setFilter] = React.useState('all');
+  const sel = useMultiSelect();
   if (!ready) return null;
 
   const tasks = window.TASKS || [];
@@ -32,6 +33,25 @@ const Tasks = () => {
     await refreshStore();
   };
 
+  const visible = Object.values(groups).flat();
+  const ids = visible.map((t) => t.raw_id);
+  const completeSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/tasks/complete-bulk', ids: sids, confirmMsg: `Mark ${sids.length} task${sids.length > 1 ? 's' : ''} complete?` });
+    if (!r) return;
+    alert(`${r.updated} completed.`);
+    sel.clear();
+    await refreshStore();
+  };
+  const deleteSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/tasks/delete-bulk', ids: sids, confirmMsg: `Delete ${sids.length} task${sids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    await refreshStore();
+  };
+
   return (
     <div className="page slide-up">
       <div className="page-h">
@@ -43,6 +63,7 @@ const Tasks = () => {
           <div className="row" style={{ background: 'var(--card)', border: '1px solid var(--rule)', borderRadius: 6, padding: 2 }}>
             {['all', 'mine', 'open', 'done'].map((k) => <button key={k} className={'btn sm ' + (filter === k ? 'primary' : 'ghost')} onClick={() => setFilter(k)}>{k}</button>)}
           </div>
+          {visible.length > 0 && <button className="btn" onClick={() => sel.toggleAll(ids)}><Icon name="check" size={12} />{sel.allSelected(ids) ? 'Unselect all' : 'Select all'}</button>}
           <button className="btn primary" onClick={() => window.openNewTask && window.openNewTask()}><Icon name="plus" size={12} />New task</button>
         </div>
       </div>
@@ -57,8 +78,9 @@ const Tasks = () => {
             </div>
             <div className="card" style={{ padding: 0 }}>
               {items.map((t, i) => (
-                <div key={t.id} className="row" style={{ padding: '12px 16px', borderBottom: i < items.length - 1 ? '1px solid var(--rule-2)' : 'none', gap: 12 }}>
-                  <input type="checkbox" checked={t.done} onChange={() => toggle(t)} />
+                <div key={t.id} className="row" style={{ padding: '12px 16px', borderBottom: i < items.length - 1 ? '1px solid var(--rule-2)' : 'none', gap: 12, background: sel.selected.has(t.raw_id) ? 'var(--hover)' : 'transparent' }}>
+                  <input type="checkbox" checked={sel.selected.has(t.raw_id)} onChange={() => sel.toggle(t.raw_id)} title="Select" style={{ accentColor: 'var(--accent)' }} />
+                  <input type="checkbox" checked={t.done} onChange={() => toggle(t)} title="Mark done" />
                   <Icon name={typeIcon[t.type] || 'check-list'} size={14} style={{ color: 'var(--muted)' }} />
                   <div style={{ flex: 1, textDecoration: t.done ? 'line-through' : 'none', opacity: t.done ? 0.5 : 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{t.title}</div>
@@ -83,6 +105,14 @@ const Tasks = () => {
           <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>No tasks match.</div>
         )}
       </div>
+      <BulkBar
+        count={sel.selected.size}
+        onClear={sel.clear}
+        actions={[
+          { label: 'Complete', icon: 'check', variant: 'primary', onClick: completeSelected },
+          { label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected },
+        ]}
+      />
     </div>
   );
 };

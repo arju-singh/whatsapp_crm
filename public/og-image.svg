@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#F2EDE3"/>
+  <rect x="64" y="64" width="120" height="120" rx="26" fill="#1A1A1A"/>
+  <text x="124" y="150" text-anchor="middle" font-family="Georgia, serif" font-size="78" font-weight="600" fill="#F5F1EA">A</text>
+  <text x="64" y="320" font-family="Georgia, 'Times New Roman', serif" font-size="92" font-weight="600" fill="#1A1A1A">WhatsApp CRM</text>
+  <text x="64" y="400" font-family="Georgia, serif" font-size="40" fill="#5c5650">The quiet CRM for people who live in WhatsApp.</text>
+  <text x="64" y="470" font-family="-apple-system, system-ui, sans-serif" font-size="28" fill="#8a8478">Bulk sends · Follow-ups · Pipeline · On your own server.</text>
+  <rect x="64" y="540" width="1072" height="2" fill="#d8d2c4"/>
+  <text x="64" y="588" font-family="-apple-system, system-ui, sans-serif" font-size="24" fill="#8a8478">No Meta approval · No per-message fees · Mumbai, 2026</text>
+</svg>

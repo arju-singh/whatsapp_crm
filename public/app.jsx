@@ -1,5 +1,5 @@
 // =============================================================
-// Arju_CRM — main app shell
+// WhatsApp CRM — main app shell
 // =============================================================
 
 const App = () => {
@@ -70,7 +70,7 @@ const App = () => {
   if (!ready) {
     return (
       <div style={{ display: 'grid', placeItems: 'center', height: '100vh', color: 'var(--muted)', background: 'var(--paper)' }}>
-        <div className="serif" style={{ fontSize: 28 }}>Arju_CRM<span style={{ color: 'var(--accent)' }}>.</span></div>
+        <div className="serif" style={{ fontSize: 28 }}>WhatsApp CRM<span style={{ color: 'var(--accent)' }}>.</span></div>
         <div style={{ marginTop: 8, fontSize: 12 }}>Loading workspace…</div>
       </div>
     );
@@ -87,32 +87,51 @@ const App = () => {
   }
 
   const crumbsMap = {
-    dashboard: ['Arju_CRM', 'Dashboard'],
-    contacts: ['Arju_CRM', 'Leads / Clients'],
-    companies: ['Arju_CRM', 'Companies'],
-    deals: ['Arju_CRM', 'Pipeline'],
-    callLogs: ['Arju_CRM', 'Call logs'],
-    followUps: ['Arju_CRM', 'Follow-ups'],
-    tasks: ['Arju_CRM', 'Tasks'],
-    calendar: ['Arju_CRM', 'Calendar'],
-    inbox: ['Arju_CRM', 'Inbox'],
-    reports: ['Arju_CRM', 'Reports'],
-    templates: ['Arju_CRM', 'Templates'],
-    messages: ['Arju_CRM', 'Outbox'],
-    leads: ['Arju_CRM', 'Find leads'],
-    campaigns: ['Arju_CRM', 'Campaigns'],
-    tickets: ['Arju_CRM', 'Tickets'],
-    automations: ['Arju_CRM', 'Automations'],
-    team: ['Arju_CRM', 'Team'],
-    users: ['Arju_CRM', 'Users'],
-    settings: ['Arju_CRM', 'Settings'],
+    dashboard: ['WhatsApp CRM', 'Dashboard'],
+    contacts: ['WhatsApp CRM', 'Leads / Clients'],
+    companies: ['WhatsApp CRM', 'Companies'],
+    deals: ['WhatsApp CRM', 'Pipeline'],
+    properties: ['WhatsApp CRM', 'Properties'],
+    dataStudio: ['WhatsApp CRM', 'Data Studio'],
+    modules: ['WhatsApp CRM', 'Modules'],
+    callLogs: ['WhatsApp CRM', 'Call logs'],
+    followUps: ['WhatsApp CRM', 'Follow-ups'],
+    tasks: ['WhatsApp CRM', 'Tasks'],
+    calendar: ['WhatsApp CRM', 'Calendar'],
+    inbox: ['WhatsApp CRM', 'Inbox'],
+    reports: ['WhatsApp CRM', 'Reports'],
+    templates: ['WhatsApp CRM', 'Templates'],
+    messages: ['WhatsApp CRM', 'Outbox'],
+    leads: ['WhatsApp CRM', 'Find leads'],
+    campaigns: ['WhatsApp CRM', 'Campaigns'],
+    tickets: ['WhatsApp CRM', 'Tickets'],
+    automations: ['WhatsApp CRM', 'Automations'],
+    team: ['WhatsApp CRM', 'Team'],
+    users: ['WhatsApp CRM', 'Users'],
+    settings: ['WhatsApp CRM', 'Settings'],
   };
+
+  // Route → module gate. If the active route belongs to a feature module that's
+  // disabled for this org, fall back to the dashboard (the menu hides it too, but
+  // this guards deep-links and live toggles).
+  const ROUTE_MODULE = {
+    companies: 'deals', deals: 'deals', reports: 'deals',
+    properties: 'realestate', callLogs: 'calling', tickets: 'support', leads: 'leadfinder',
+    dataStudio: 'metadata',
+  };
+  const enabledMods = window.MODULES_ENABLED;
+  const routeMod = ROUTE_MODULE[route];
+  const routeBlocked = routeMod && enabledMods && enabledMods.size > 0 && !enabledMods.has(routeMod);
+  const activeRoute = routeBlocked ? 'dashboard' : route;
 
   const View = {
     dashboard: <Dashboard openAI={() => setAI(true)} setRoute={setRoute} />,
     contacts: <Contacts />,
     companies: <Companies />,
     deals: <Deals />,
+    properties: window.Properties ? <window.Properties /> : null,
+    dataStudio: window.DataStudio ? <window.DataStudio /> : null,
+    modules: window.ModulesAdmin ? <window.ModulesAdmin /> : null,
     callLogs: <CallLogs />,
     followUps: <FollowUps />,
     tasks: <Tasks />,
@@ -128,7 +147,7 @@ const App = () => {
     team: <Team />,
     users: <Users />,
     settings: <Settings />,
-  }[route];
+  }[activeRoute];
 
   const TweaksPanel = window.TweaksPanel;
   const TweakSection = window.TweakSection;
@@ -136,10 +155,10 @@ const App = () => {
   const TweakRadio = window.TweakRadio;
 
   return (
-    <div className="app" data-screen-label={'Arju_CRM · ' + route}>
+    <div className="app" data-screen-label={'WhatsApp CRM · ' + route}>
       <Sidebar route={route} setRoute={setRoute} openCmd={() => setCmd(true)} openWaQr={() => window.openWaQr && window.openWaQr()} />
       <Topbar
-        crumbs={crumbsMap[route] || ['Arju_CRM']}
+        crumbs={crumbsMap[activeRoute] || ['WhatsApp CRM']}
         openCmd={() => setCmd(true)}
         theme={theme} setTheme={setTheme}
         openAI={() => setAI(true)}

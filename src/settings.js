@@ -19,6 +19,9 @@ const DEFAULTS = {
   ai_business_profile: 'I run a small CRM/outreach tool that helps Indian pet shops, vets, and pet groomers find products, distributors, and grow their business. We send polite, helpful WhatsApp messages in a mix of Hindi/Hinglish/English depending on what the contact uses.',
   ai_model: 'claude-sonnet-4-6',
   ai_auto_draft_inbound: '1',
+  foursquare_api_key: '',
+  here_api_key: '',
+  tomtom_api_key: '',
 };
 
 const ENV_MAP = {
@@ -40,6 +43,9 @@ const ENV_MAP = {
   ai_business_profile: 'AI_BUSINESS_PROFILE',
   ai_model: 'AI_MODEL',
   ai_auto_draft_inbound: 'AI_AUTO_DRAFT_INBOUND',
+  foursquare_api_key: 'FOURSQUARE_API_KEY',
+  here_api_key: 'HERE_API_KEY',
+  tomtom_api_key: 'TOMTOM_API_KEY',
 };
 
 const cache = new Map();

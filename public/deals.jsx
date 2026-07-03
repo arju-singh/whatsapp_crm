@@ -79,13 +79,13 @@ const PipelineKanban = ({ onOpen, deals, onMove }) => {
   );
 };
 
-const PipelineTable = ({ deals, onOpen }) => (
+const PipelineTable = ({ deals, onOpen, sel }) => (
   <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
     <div style={{ maxHeight: 'calc(100vh - 320px)', overflow: 'auto' }}>
       <table className="table">
         <thead>
           <tr>
-            <th></th><th>Deal</th><th>Stage</th><th className="num">Amount</th><th>Close</th><th>Owner</th><th>Source</th><th className="num">Score</th>
+            <th><input type="checkbox" checked={deals.length > 0 && deals.every((d) => sel.selected.has(d.raw_id))} onChange={() => sel.toggleAll(deals.map((d) => d.raw_id))} /></th><th>Deal</th><th>Stage</th><th className="num">Amount</th><th>Close</th><th>Owner</th><th>Source</th><th className="num">Score</th>
           </tr>
         </thead>
         <tbody>
@@ -93,8 +93,8 @@ const PipelineTable = ({ deals, onOpen }) => (
             const co = getCompany(d.companyId) || { color: '#7A7670', logo: '?', name: '—' };
             const st = getStage(d.stage);
             return (
-              <tr key={d.id} onClick={() => onOpen(d)} style={{ cursor: 'pointer' }}>
-                <td><input type="checkbox" onClick={(e) => e.stopPropagation()} /></td>
+              <tr key={d.id} onClick={() => onOpen(d)} style={{ cursor: 'pointer' }} className={sel.selected.has(d.raw_id) ? 'is-selected' : ''}>
+                <td><input type="checkbox" checked={sel.selected.has(d.raw_id)} onClick={(e) => e.stopPropagation()} onChange={() => sel.toggle(d.raw_id)} /></td>
                 <td>
                   <div className="row" style={{ gap: 10 }}>
                     <div style={{ width: 22, height: 22, borderRadius: 4, background: co.color, color: 'white', fontSize: 9, display: 'grid', placeItems: 'center', fontWeight: 700 }}>{co.logo}</div>
@@ -250,9 +250,18 @@ const Deals = () => {
   const { ready } = useStore();
   const [view, setView] = React.useState('kanban');
   const [open, setOpen] = React.useState(null);
+  const sel = useMultiSelect();
   if (!ready) return null;
 
   const deals = window.DEALS || [];
+  const deleteSelected = async () => {
+    const ids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/deals/delete-bulk', ids, confirmMsg: `Delete ${ids.length} deal${ids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    await refreshStore();
+  };
   const totalPipe = deals.filter((d) => {
     const s = getStage(d.stage); return s && !s.isWon && !s.isLost;
   }).reduce((s, d) => s + d.amount, 0);
@@ -283,7 +292,7 @@ const Deals = () => {
       </div>
 
       {view === 'kanban' && <PipelineKanban deals={deals} onMove={onMove} onOpen={setOpen} />}
-      {view === 'table' && <PipelineTable deals={deals} onOpen={setOpen} />}
+      {view === 'table' && <PipelineTable deals={deals} onOpen={setOpen} sel={sel} />}
       {view === 'forecast' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           {[
@@ -318,6 +327,7 @@ const Deals = () => {
       )}
 
       {open && <DealDrawer deal={open} onClose={() => setOpen(null)} onMove={onMove} />}
+      <BulkBar count={sel.selected.size} onClear={sel.clear} actions={[{ label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected }]} />
     </div>
   );
 };

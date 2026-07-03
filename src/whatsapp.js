@@ -20,8 +20,23 @@ let processing = false;
 
 const STOP_KEYWORDS = /^\s*(stop|unsubscribe|remove|opt[\s-]?out|do not (contact|message)|leave me alone)\b/i;
 
+// Pin the WhatsApp Web version. whatsapp-web.js ships with a bundled WWeb build
+// that drifts out of sync with WhatsApp's servers over time; when it does, the
+// phone accepts the QR scan but the pairing handshake never completes and it
+// loops back to a fresh QR ("scan fails to link"). Pinning a current WWeb HTML
+// from the maintained wppconnect/wa-version repo fixes that. Bump WA_WEB_VERSION
+// when WhatsApp updates again (newest at github.com/wppconnect-team/wa-version);
+// unset it to fall back to the library's bundled version.
+const WA_WEB_VERSION = process.env.WA_WEB_VERSION || '2.3000.1039904970-alpha';
+const WA_WEB_VERSION_HTML = process.env.WA_WEB_VERSION_HTML
+  || `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`;
+
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsapp-crm' }),
+  ...(WA_WEB_VERSION ? {
+    webVersion: WA_WEB_VERSION,
+    webVersionCache: { type: 'remote', remotePath: WA_WEB_VERSION_HTML },
+  } : {}),
   puppeteer: {
     headless: true,
     protocolTimeout: 180_000,
@@ -70,12 +85,22 @@ client.on('ready', () => {
   }
 });
 
-client.on('authenticated', () => console.log('[wa] authenticated'));
+client.on('authenticated', () => console.log('[wa] authenticated — QR accepted, syncing…'));
 client.on('auth_failure', (m) => console.error('[wa] auth failure', m));
 client.on('disconnected', (reason) => {
   state.ready = false;
   console.warn('[wa] disconnected', reason);
 });
+
+// Diagnostics for the QR → linked handshake. Without these there is no trace
+// between "QR shown" and "ready": a scan that the phone accepts fires
+// `authenticated` then `loading_screen` (sync %) before `ready`; a scan that
+// silently fails (e.g. WhatsApp Web version drift) shows neither. `change_state`
+// surfaces CONFLICT / UNPAIRED / TIMEOUT etc. so a stuck link is visible.
+client.on('loading_screen', (percent, message) => {
+  console.log(`[wa] loading ${percent}% ${message || ''}`);
+});
+client.on('change_state', (s) => console.log('[wa] state →', s));
 
 // Some whatsapp-web.js setups only emit `message_create` (which fires for ALL
 // messages, including the ones the user typed on their phone). Mirror it to
@@ -128,14 +153,50 @@ client.on('message', async (msg) => {
     return;
   }
 
+  // Best-effort: use the sender's WhatsApp profile name for auto-created vendors.
+  let pushname = null;
+  try { const c = await msg.getContact(); pushname = c?.pushname || c?.name || null; } catch (_) {}
+
+  // Hand off to the shared ingestion routine so this listener and the
+  // /api/wa/webhook route (fed by an external whatsmeow bridge) behave identically.
+  await ingestInbound({
+    phone,
+    body: msg.body || '',
+    waMessageId: msg.id?._serialized,
+    pushname,
+    source: 'wwebjs',
+  });
+});
+
+// Shared inbound ingestion. Given a normalized phone + message body, upsert the
+// vendor (auto-creating a lead so nothing is silently dropped), store the inbound
+// message, open/refresh a support ticket, fire message_received automations,
+// auto-draft an AI reply, and handle STOP/opt-out keywords. Called by both the
+// whatsapp-web.js `message` listener and the /api/wa/webhook route, so every
+// inbound path produces the same CRM side effects. Idempotent per wa_message_id.
+async function ingestInbound({ phone, body = '', waMessageId = null, pushname = null, source = 'unknown' }) {
+  phone = String(phone == null ? '' : phone).replace(/\D/g, '');
+  if (!phone) {
+    console.log(`[wa:inbound:${source}] skipping — empty phone after normalize`);
+    return null;
+  }
+  body = body || '';
+
+  // De-dupe on the provider message id so a webhook retry (or the same number
+  // being linked to both the CRM session and the bridge) can't double-insert.
+  if (waMessageId) {
+    const dup = db.prepare('SELECT id FROM messages WHERE wa_message_id = ? LIMIT 1').get(waMessageId);
+    if (dup) {
+      console.log(`[wa:inbound:${source}] skipping — duplicate wa_message_id ${waMessageId}`);
+      return null;
+    }
+  }
+
   // Try to find an existing vendor; if none, auto-create one so the inbound
   // message is never silently dropped. New leads land in the Inbox immediately.
   let vendor = db.prepare('SELECT id, email FROM vendors WHERE phone = ?').get(phone);
   if (!vendor) {
     try {
-      // Try to use the sender's WhatsApp profile name; fall back to a placeholder.
-      let pushname = null;
-      try { const c = await msg.getContact(); pushname = c?.pushname || c?.name || null; } catch (_) {}
       const displayName = pushname || `WhatsApp +${phone}`;
       const r = db.prepare(`
         INSERT INTO vendors (name, phone, status, total_replied, last_replied_at, created_at, updated_at)
@@ -145,17 +206,16 @@ client.on('message', async (msg) => {
       console.log(`[wa] auto-created vendor #${vendor.id} for new inbound from +${phone}`);
     } catch (e) {
       console.error('[wa] failed to auto-create vendor for inbound:', e.message);
-      return;
+      return null;
     }
   }
 
   const now = Date.now();
-  const body = msg.body || '';
   db.prepare(`
     INSERT INTO messages (vendor_id, direction, body, status, wa_message_id, sent_at, created_at)
     VALUES (?, 'in', ?, 'received', ?, ?, ?)
-  `).run(vendor.id, body, msg.id?._serialized, now, now);
-  console.log(`[wa:inbound] STORED reply for vendor #${vendor.id} (+${phone}): "${body.slice(0, 60)}"`);
+  `).run(vendor.id, body, waMessageId, now, now);
+  console.log(`[wa:inbound:${source}] STORED reply for vendor #${vendor.id} (+${phone}): "${body.slice(0, 60)}"`);
   db.prepare(`
     UPDATE vendors
     SET last_replied_at = ?, total_replied = total_replied + 1, status = 'replied', updated_at = ?
@@ -167,6 +227,33 @@ client.on('message', async (msg) => {
     WHERE vendor_id = ? AND status = 'pending'
       AND rule_id IN (SELECT id FROM followup_rules WHERE stop_on_reply = 1)
   `).run(vendor.id);
+
+  // Turn every inbound message into a support ticket. One open ticket per
+  // conversation: reuse the latest still-open ticket for this customer and just
+  // refresh its timestamp, otherwise open a new one. STOP/opt-out messages are
+  // handled below and never open a ticket.
+  const isStop = STOP_KEYWORDS.test(body);
+  if (!isStop) {
+    try {
+      const vrow = db.prepare('SELECT company_id FROM vendors WHERE id = ?').get(vendor.id);
+      const open = db.prepare(`
+        SELECT id FROM tickets
+        WHERE requester_id = ? AND source = 'whatsapp' AND status != 'solved'
+        ORDER BY created_at DESC LIMIT 1
+      `).get(vendor.id);
+      if (open) {
+        db.prepare(`UPDATE tickets SET last_message_at = ?, updated_at = ? WHERE id = ?`)
+          .run(now, now, open.id);
+      } else {
+        const subject = (body.trim().split('\n')[0] || 'WhatsApp message').slice(0, 80);
+        const t = db.prepare(`
+          INSERT INTO tickets (subject, body, company_id, requester_id, priority, status, source, last_message_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'med', 'open', 'whatsapp', ?, ?, ?)
+        `).run(subject, body.slice(0, 2000), vrow?.company_id || null, vendor.id, now, now, now);
+        console.log(`[wa:inbound] opened ticket #${t.lastInsertRowid} for vendor #${vendor.id}`);
+      }
+    } catch (e) { console.error('[wa:inbound] ticket upsert failed:', e.message); }
+  }
 
   // Fire message_received automations (AI draft, auto-tags, etc)
   try {
@@ -180,7 +267,7 @@ client.on('message', async (msg) => {
   });
 
   // Auto-suppress on STOP / UNSUBSCRIBE / REMOVE keywords
-  if (STOP_KEYWORDS.test(body)) {
+  if (isStop) {
     suppressions.addSuppression({
       phone,
       email: vendor.email || null,
@@ -199,7 +286,9 @@ client.on('message', async (msg) => {
     `).run(vendor.id, `keyword: ${body.slice(0, 80)}`);
     console.log(`[wa] auto-suppressed ${phone} (opt-out keyword)`);
   }
-});
+
+  return vendor.id;
+}
 
 const SESSION_DIR = path.join(__dirname, '..', '.wwebjs_auth', 'session-whatsapp-crm');
 
@@ -492,8 +581,12 @@ async function processQueue() {
   processing = false;
 }
 
-function enqueueMessage(messageId) {
-  queue.push(messageId);
+// priority=true puts the message at the FRONT of the send queue so a live
+// 1:1 reply goes out ahead of any queued bulk-campaign messages, instead of
+// waiting behind them. Used for inbox replies to customers.
+function enqueueMessage(messageId, { priority = false } = {}) {
+  if (priority) queue.unshift(messageId);
+  else queue.push(messageId);
   setImmediate(processQueue);
 }
 
@@ -612,6 +705,7 @@ module.exports = {
   getQrDataUrl,
   safeReinit,
   enqueueMessage,
+  ingestInbound,
   renderTemplate,
   importContacts,
   enrichContacts,

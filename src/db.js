@@ -252,14 +252,25 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 `);
 
-// Seed super_admin on first run.
+// Seed super_admin on first run. The password is NEVER hard-coded: it comes
+// from SEED_ADMIN_PASSWORD, or a strong random one is generated and printed
+// once to the server log (OWASP A07 — no shipped default credentials).
 (() => {
+  const crypto = require('crypto');
   const { hashPassword } = require('./auth');
-  const exists = db.prepare(`SELECT id FROM users WHERE phone = ?`).get('919306466642');
+  const phone = process.env.SEED_ADMIN_PHONE || '919306466642';
+  const name = process.env.SEED_ADMIN_NAME || 'Arju Singh';
+  const exists = db.prepare(`SELECT id FROM users WHERE phone = ?`).get(phone);
   if (!exists) {
+    const password = process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(12).toString('base64url');
     db.prepare(`INSERT INTO users (name, phone, password_hash, role) VALUES (?, ?, ?, ?)`)
-      .run('Arju Singh', '919306466642', hashPassword('admin123'), 'super_admin');
-    console.log('[db] seeded super_admin: phone=919306466642 password=admin123  (CHANGE IT after first login)');
+      .run(name, phone, hashPassword(password), 'super_admin');
+    if (process.env.SEED_ADMIN_PASSWORD) {
+      console.log(`[db] seeded super_admin: phone=${phone} (password from SEED_ADMIN_PASSWORD — CHANGE IT after first login)`);
+    } else {
+      console.log(`[db] seeded super_admin: phone=${phone} password=${password}`);
+      console.log('[db] ^ random password shown ONCE. Save it, then change it after first login (or set SEED_ADMIN_PASSWORD).');
+    }
   }
 })();
 ensureColumn('campaigns', 'owner', 'TEXT');
@@ -422,6 +433,13 @@ CREATE INDEX IF NOT EXISTS idx_calendar_starts ON calendar_events(starts_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(unread, created_at);
 CREATE INDEX IF NOT EXISTS idx_vendors_company ON vendors(company_id);
 `);
+
+// Tickets can be opened automatically from inbound WhatsApp messages; `source`
+// tags those ('whatsapp') vs. manually-created ones (NULL/'manual'), and
+// last_message_at tracks the newest customer message so the queue sorts live.
+ensureColumn('tickets', 'source', 'TEXT');
+ensureColumn('tickets', 'last_message_at', 'INTEGER');
+db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_requester ON tickets(requester_id, status);');
 
 // One-time seed: only runs if every Three-CRM table is empty.
 function seedThreeData() {
@@ -632,5 +650,54 @@ function ensureStages() {
   }
 }
 try { ensureStages(); } catch (e) { console.error('[db] ensureStages failed:', e.message); }
+
+// ---------------------------------------------------------------------------
+// SaaS pre-launch additions: account email + verification/reset, billing
+// (Stripe) fields, analytics events, and a feedback/support inbox.
+// ---------------------------------------------------------------------------
+ensureColumn('users', 'email', 'TEXT');
+ensureColumn('users', 'email_verified', 'INTEGER DEFAULT 0');
+ensureColumn('users', 'verify_token', 'TEXT');
+ensureColumn('users', 'verify_sent_at', 'INTEGER');
+ensureColumn('users', 'reset_token', 'TEXT');
+ensureColumn('users', 'reset_expires_at', 'INTEGER');
+// Billing (Stripe). plan: free|pro|... ; subscription_status mirrors Stripe.
+ensureColumn('users', 'plan', "TEXT DEFAULT 'free'");
+ensureColumn('users', 'stripe_customer_id', 'TEXT');
+ensureColumn('users', 'stripe_subscription_id', 'TEXT');
+ensureColumn('users', 'subscription_status', 'TEXT');
+ensureColumn('users', 'current_period_end', 'INTEGER');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL DEFAULT 'event',   -- 'page' | 'event'
+  name TEXT,                            -- event name or page title
+  path TEXT,                            -- url path for page views
+  referrer TEXT,
+  user_id INTEGER,
+  anon_id TEXT,                         -- client-generated anonymous id
+  props TEXT,                           -- JSON blob of extra properties
+  ip TEXT,
+  ua TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+);
+CREATE INDEX IF NOT EXISTS idx_analytics_created ON analytics_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_analytics_type ON analytics_events(type, created_at);
+
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL DEFAULT 'contact', -- 'contact' | 'bug'
+  name TEXT,
+  email TEXT,
+  message TEXT NOT NULL,
+  url TEXT,
+  user_id INTEGER,
+  user_agent TEXT,
+  status TEXT DEFAULT 'open',
+  created_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, created_at);
+`);
 
 module.exports = db;

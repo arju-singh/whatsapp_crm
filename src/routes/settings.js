@@ -1,29 +1,54 @@
 const express = require('express');
 const db = require('../db');
 const settings = require('../settings');
+const { requirePerm } = require('../permissions');
 
 const router = express.Router();
 
 const EXPORT_VERSION = 1;
-const SECRET_KEYS = new Set(['resend_webhook_secret', 'mailgun_signing_key']);
+// Sensitive values that must never be sent to the client. Includes the
+// Anthropic API key and inbound-webhook signing secrets (OWASP A02 — sensitive
+// data exposure / hard-coded-secret leakage).
+const SECRET_KEYS = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'anthropic_api_key', 'foursquare_api_key', 'here_api_key', 'tomtom_api_key']);
 
+// Return settings for the UI with every secret redacted. The UI gets a
+// `secrets_set` map so it can show "configured / not configured" without ever
+// receiving the secret material itself.
 router.get('/', (req, res) => {
-  res.json({ values: settings.getAll(), defaults: settings.DEFAULTS, env_keys: settings.ENV_MAP });
+  const all = settings.getAll();
+  const values = {};
+  const secrets_set = {};
+  for (const [k, v] of Object.entries(all)) {
+    if (SECRET_KEYS.has(k)) {
+      secrets_set[k] = !!(v && String(v).length);
+      values[k] = ''; // redacted — never expose secret material client-side
+    } else {
+      values[k] = v;
+    }
+  }
+  res.json({ values, secrets_set, defaults: settings.DEFAULTS, env_keys: settings.ENV_MAP });
 });
 
-router.put('/', (req, res) => {
+router.put('/', requirePerm('settings.manage'), (req, res) => {
   const updates = req.body || {};
   const allowed = Object.keys(settings.DEFAULTS);
   const applied = {};
   for (const k of Object.keys(updates)) {
     if (!allowed.includes(k)) continue;
-    settings.set(k, updates[k]);
-    applied[k] = updates[k];
+    const v = updates[k];
+    // Never clobber a configured secret with a blank value — the UI submits the
+    // redacted (empty) field on every save, so a blank means "leave unchanged".
+    if (SECRET_KEYS.has(k) && (v == null || String(v) === '')) continue;
+    settings.set(k, v);
+    applied[k] = SECRET_KEYS.has(k) ? '(updated)' : v;
   }
-  res.json({ ok: true, applied, values: settings.getAll() });
+  // Re-read but redact secrets in the echoed values.
+  const safeValues = {};
+  for (const [k, v] of Object.entries(settings.getAll())) safeValues[k] = SECRET_KEYS.has(k) ? '' : v;
+  res.json({ ok: true, applied, values: safeValues });
 });
 
-router.get('/export', (req, res) => {
+router.get('/export', requirePerm('settings.manage'), (req, res) => {
   const includeSecrets = req.query.include_secrets === '1';
 
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
@@ -65,7 +90,7 @@ router.get('/export', (req, res) => {
   res.send(JSON.stringify(bundle, null, 2));
 });
 
-router.post('/import', (req, res) => {
+router.post('/import', requirePerm('settings.manage'), (req, res) => {
   const bundle = req.body;
   if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
     return res.status(400).json({ error: 'invalid_bundle' });

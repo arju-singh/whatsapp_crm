@@ -1,10 +1,17 @@
 const express = require('express');
 const db = require('../db');
+const { body, S } = require('../validate');
+const { orgFilter } = require('../tenancy');
+const rateLimit = require('../ratelimit');
 
 const router = express.Router();
 
+// Dedicated limiter for endpoints that spend real money on the Anthropic API.
+// Per-user so one account can't run up the bill; tighter than the global API cap.
+const aiLimiter = rateLimit({ bucket: 'ai', max: 30, windowMs: 5 * 60 * 1000, keyBy: 'user' });
+
 // Pattern-matched assistant. No external LLM call — answers come from live data.
-router.post('/ask', (req, res) => {
+router.post('/ask', body({ query: S.string({ maxLength: 2000 }) }), (req, res) => {
   const q = String(req.body && req.body.query || '').toLowerCase();
   if (!q) return res.status(400).json({ error: 'query_required' });
   const reply = answer(q);
@@ -12,7 +19,7 @@ router.post('/ask', (req, res) => {
 });
 
 // AI draft endpoints (Claude API; needs anthropic_api_key in settings)
-router.post('/draft-reply', async (req, res) => {
+router.post('/draft-reply', aiLimiter, body({ vendor_id: S.int({ min: 1 }) }), async (req, res) => {
   const { vendor_id } = req.body || {};
   if (!vendor_id) return res.status(400).json({ error: 'vendor_id_required' });
   try {
@@ -28,16 +35,16 @@ router.get('/drafts', (req, res) => {
   res.json(require('../ai-agent').listDrafts({ status: status || 'pending', vendor_id }));
 });
 
-router.post('/drafts/:id/approve', (req, res) => {
+router.post('/drafts/:id/approve', body({}), (req, res) => {
   try { res.json(require('../ai-agent').approveDraft(req.params.id)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-router.post('/drafts/:id/dismiss', (req, res) => {
+router.post('/drafts/:id/dismiss', body({}), (req, res) => {
   res.json(require('../ai-agent').dismissDraft(req.params.id));
 });
 
-router.put('/drafts/:id', (req, res) => {
+router.put('/drafts/:id', body({ body: S.text({ maxLength: 10000 }) }), (req, res) => {
   const { body } = req.body || {};
   if (!body) return res.status(400).json({ error: 'body_required' });
   res.json(require('../ai-agent').editDraft(req.params.id, body));
@@ -66,13 +73,14 @@ router.get('/dashboard-summary', (req, res) => {
       COUNT(CASE WHEN s.is_won = 1 THEN 1 END) AS won_deals,
       COUNT(CASE WHEN s.is_lost = 1 THEN 1 END) AS lost_deals
     FROM deals d LEFT JOIN stages s ON s.id = d.stage_id
-  `).get();
+    WHERE ${orgFilter('d')}
+  `).get({ orgId: req.orgId });
   const winRate = (stats.won_deals + stats.lost_deals) > 0
     ? Math.round((stats.won_deals / (stats.won_deals + stats.lost_deals)) * 100)
     : 0;
-  const me = db.prepare("SELECT * FROM team_members WHERE is_self = 1").get() || { quota: 1, attained: 0 };
+  const me = db.prepare(`SELECT * FROM team_members WHERE is_self = 1 AND ${orgFilter()}`).get({ orgId: req.orgId }) || { quota: 1, attained: 0 };
   const quotaPct = me.quota > 0 ? Math.round((me.attained / me.quota) * 100) : 0;
-  const tasksOpen = db.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE completed = 0 AND priority = 'high'`).get().c;
+  const tasksOpen = db.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE completed = 0 AND priority = 'high' AND ${orgFilter()}`).get({ orgId: req.orgId }).c;
   res.json({
     pipeline_value: stats.pipeline_value || 0,
     booked_mtd: stats.booked_mtd || 0,

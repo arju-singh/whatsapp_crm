@@ -70,7 +70,23 @@ function makeAuthMiddleware(db) {
   const PUBLIC_PATHS = new Set([
     '/login', '/login.html', '/login.js', '/login.css',
     '/unsubscribe', '/favicon.ico',
+    // Legal + SEO + reset page (publicly reachable, no session required)
+    '/privacy', '/privacy.html', '/terms', '/terms.html',
+    '/cookies', '/cookies.html', '/reset.html',
+    '/robots.txt', '/sitemap.xml', '/analytics.js', '/og-image.png', '/og-image.svg',
+    // Auth + onboarding endpoints
     '/api/auth/login', '/api/auth/signup', '/api/auth/logout',
+    '/api/auth/verify', '/api/auth/forgot', '/api/auth/reset',
+    // Social login (Google OAuth)
+    '/api/auth/google', '/api/auth/google/callback', '/api/auth/google/config',
+    // Public collectors
+    '/api/analytics/collect', '/api/support/contact',
+    // Stripe webhook (signature-verified inside the route)
+    '/api/billing/webhook',
+    // Twilio call-status webhook (X-Twilio-Signature verified inside the route)
+    '/api/calls/twilio/status',
+    // WhatsApp bridge inbound webhook (WA_WEBHOOK_SECRET / loopback verified inside the route)
+    '/api/wa/webhook',
   ]);
   const PUBLIC_PREFIXES = ['/avatars/', '/styles', '/fonts'];
 

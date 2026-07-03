@@ -29,6 +29,58 @@ const api = async (path, opts = {}) => {
 };
 window.api = api;
 
+// =============================================================
+// Shared multi-select + bulk-action helpers, used by every list view
+// (Contacts, Companies, Deals, Calls, Tasks, Follow-ups, Outbox,
+// Templates, Campaigns, Tickets, Find leads). Keeps selection logic and
+// the floating action bar consistent everywhere.
+// =============================================================
+function useMultiSelect() {
+  const [selected, setSelected] = React.useState(() => new Set());
+  const toggle = React.useCallback((id) => {
+    setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
+  const clear = React.useCallback(() => setSelected(new Set()), []);
+  // Toggle all: if every id is already selected, clear; else select them all.
+  const toggleAll = React.useCallback((ids) => {
+    setSelected((prev) => {
+      const all = ids.length > 0 && ids.every((id) => prev.has(id));
+      return all ? new Set() : new Set(ids);
+    });
+  }, []);
+  const allSelected = (ids) => ids.length > 0 && ids.every((id) => selected.has(id));
+  return { selected, setSelected, toggle, clear, toggleAll, allSelected };
+}
+window.useMultiSelect = useMultiSelect;
+
+// Floating, fixed bottom-center bar shown whenever 1+ rows are selected.
+// `actions` = [{ label, icon?, variant?, onClick }]. variant maps to btn class.
+function BulkBar({ count, actions, onClear }) {
+  if (!count) return null;
+  return (
+    <div className="bulkbar">
+      <span className="bulkbar-count">{count} selected</span>
+      {actions.map((a, i) => (
+        <button key={i} className={'btn sm ' + (a.variant || '')} onClick={a.onClick} disabled={a.disabled}>
+          {a.icon ? <Icon name={a.icon} size={12} /> : null}{a.label}
+        </button>
+      ))}
+      <button className="btn sm ghost" onClick={onClear} title="Clear selection"><Icon name="x" size={12} /></button>
+    </div>
+  );
+}
+window.BulkBar = BulkBar;
+
+// Run a POST /<resource>/<op>-bulk call with confirm + result alert. Returns
+// the parsed response (or null if cancelled / empty selection).
+async function bulkRun({ url, ids, confirmMsg, extra }) {
+  ids = Array.from(ids || []);
+  if (!ids.length) { alert('Select some rows first'); return null; }
+  if (confirmMsg && !confirm(confirmMsg)) return null;
+  return api(url, { method: 'POST', body: { ids, ...(extra || {}) } });
+}
+window.bulkRun = bulkRun;
+
 // Fetch shape for the contacts API (vendors). Adapt fields to what views expect.
 function adaptContact(v) {
   return {
@@ -236,7 +288,7 @@ async function loadAll() {
     companiesRaw, contactsRaw, stagesRaw, dealsRaw, tasksRaw, callsRaw, ticketsRaw,
     automationsRaw, teamRaw, notifsRaw, campaignsRaw, calendarRaw,
     revenueRaw, sourcesRaw, funnelRaw, heatmapRaw, kpiRaw, leaderboardRaw,
-    pipelineTrendRaw, summaryRaw, insightsRaw, waStatus,
+    pipelineTrendRaw, summaryRaw, insightsRaw, waStatus, platformRaw,
   ] = await Promise.all([
     api('/api/auth/me'),
     api('/api/companies'),
@@ -261,9 +313,14 @@ async function loadAll() {
     api('/api/ai/dashboard-summary'),
     api('/api/ai/insights'),
     api('/api/wa/status').catch(() => ({ ready: false, hasQr: false })),
+    // Platform layer: which org we're in, enabled modules, permissions, module-driven nav.
+    api('/api/platform/me').catch(() => ({ org: null, modules: [], permissions: [], nav: [] })),
   ]);
 
   window.CURRENT_USER = meRaw && meRaw.user ? meRaw.user : null;
+  window.PLATFORM = platformRaw || { org: null, modules: [], permissions: [], nav: [] };
+  window.MODULES_ENABLED = new Set((window.PLATFORM.modules || []).filter((m) => m.enabled).map((m) => m.key));
+  window.PERMISSIONS = new Set(window.PLATFORM.permissions || []);
   window.COMPANIES = companiesRaw.map(adaptCompany);
   window.CONTACTS = contactsRaw.map(adaptContact);
   window.STAGES = stagesRaw.map(adaptStage);

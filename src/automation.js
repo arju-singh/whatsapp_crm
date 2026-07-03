@@ -23,10 +23,9 @@
 // =============================================================
 const db = require('./db');
 
-let waMod = null; // lazy to avoid circular require with whatsapp.js
 let aiMod = null;
+const transports = require('./transports'); // unified send; lazily loads channels itself
 
-function getWa() { if (!waMod) waMod = require('./whatsapp'); return waMod; }
 function getAi() { if (!aiMod) aiMod = require('./ai-agent'); return aiMod; }
 
 const HANDLERS = {
@@ -37,7 +36,7 @@ const HANDLERS = {
     const r = db.prepare(`
       INSERT INTO messages (vendor_id, direction, body, status) VALUES (?, 'out', ?, 'queued')
     `).run(vendor.id, t.body);
-    getWa().enqueueMessage(r.lastInsertRowid);
+    transports.sendMessage('whatsapp', r.lastInsertRowid);
     return { message_id: r.lastInsertRowid };
   },
   send_message({ vendor, action }) {
@@ -45,7 +44,7 @@ const HANDLERS = {
     const r = db.prepare(`
       INSERT INTO messages (vendor_id, direction, body, status) VALUES (?, 'out', ?, 'queued')
     `).run(vendor.id, action.body || '(empty)');
-    getWa().enqueueMessage(r.lastInsertRowid);
+    transports.sendMessage('whatsapp', r.lastInsertRowid);
     return { message_id: r.lastInsertRowid };
   },
   create_task({ vendor, deal, action }) {

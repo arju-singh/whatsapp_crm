@@ -1,43 +1,54 @@
 const express = require('express');
 const db = require('../db');
 const wa = require('../whatsapp');
+const transports = require('../transports');
+const { body, S } = require('../validate');
+const { orgFilter } = require('../tenancy');
 
 const router = express.Router();
 
-router.post('/test', (req, res) => {
+router.post('/test', body({
+  to_phone: S.string({ maxLength: 32 }),
+  body: S.text(),
+  template_id: S.int({ min: 1 }),
+}), (req, res) => {
   const { to_phone, body, template_id } = req.body;
   const phone = String(to_phone || process.env.TEST_NUMBER || '').replace(/\D/g, '');
   if (!phone) return res.status(400).json({ error: 'to_phone or TEST_NUMBER env required' });
   let messageBody = body;
   if (!messageBody && template_id) {
-    const t = db.prepare('SELECT body FROM templates WHERE id = ?').get(template_id);
+    const t = db.prepare(`SELECT body FROM templates WHERE id = @id AND ${orgFilter()}`).get({ id: template_id, orgId: req.orgId });
     if (!t) return res.status(404).json({ error: 'template_not_found' });
     messageBody = t.body;
   }
   if (!messageBody) return res.status(400).json({ error: 'body_or_template_required' });
   // Use a stub vendor row so the existing pipeline (sendOne) handles it. Upsert by phone.
-  let v = db.prepare('SELECT id FROM vendors WHERE phone = ?').get(phone);
+  let v = db.prepare(`SELECT id FROM vendors WHERE phone = @phone AND ${orgFilter()}`).get({ phone, orgId: req.orgId });
   if (!v) {
-    const r = db.prepare(`INSERT INTO vendors (name, phone, status) VALUES (?, ?, 'test')`).run('Test recipient', phone);
+    const r = db.prepare(`INSERT INTO vendors (organization_id, name, phone, status) VALUES (?, ?, ?, 'test')`).run(req.orgId, 'Test recipient', phone);
     v = { id: r.lastInsertRowid };
   }
   const msg = db.prepare(`
-    INSERT INTO messages (vendor_id, direction, body, status) VALUES (?, 'out', ?, 'queued')
-  `).run(v.id, messageBody);
-  wa.enqueueMessage(msg.lastInsertRowid);
+    INSERT INTO messages (organization_id, vendor_id, direction, body, status) VALUES (?, ?, 'out', ?, 'queued')
+  `).run(req.orgId, v.id, messageBody);
+  transports.sendMessage('whatsapp', msg.lastInsertRowid);
   res.json({ id: msg.lastInsertRowid, queued: true, to_phone: phone });
 });
 
-router.post('/preview', (req, res) => {
+router.post('/preview', body({
+  vendor_id: S.int({ min: 1 }),
+  body: S.text(),
+  template_id: S.int({ min: 1 }),
+}), (req, res) => {
   const { vendor_id, body, template_id } = req.body;
   let messageBody = body;
   if (!messageBody && template_id) {
-    const t = db.prepare('SELECT body FROM templates WHERE id = ?').get(template_id);
+    const t = db.prepare(`SELECT body FROM templates WHERE id = @id AND ${orgFilter()}`).get({ id: template_id, orgId: req.orgId });
     if (!t) return res.status(404).json({ error: 'template_not_found' });
     messageBody = t.body;
   }
   if (!messageBody) return res.status(400).json({ error: 'body_or_template_required' });
-  const v = vendor_id ? db.prepare('SELECT name, company, email FROM vendors WHERE id = ?').get(vendor_id) : null;
+  const v = vendor_id ? db.prepare(`SELECT name, company, email FROM vendors WHERE id = @id AND ${orgFilter()}`).get({ id: vendor_id, orgId: req.orgId }) : null;
   const wa = require('../whatsapp');
   const rendered = wa.renderTemplate(messageBody, {
     name: (v && v.name) || 'Sample Name',
@@ -47,28 +58,39 @@ router.post('/preview', (req, res) => {
   res.json({ rendered });
 });
 
-router.post('/send', (req, res) => {
+router.post('/send', body({
+  vendor_id: S.int({ min: 1 }),
+  body: S.text(),
+  template_id: S.int({ min: 1 }),
+  scheduled_at: S.int({ min: 0 }),
+}), (req, res) => {
   const { vendor_id, body, template_id } = req.body;
   if (!vendor_id || (!body && !template_id)) {
     return res.status(400).json({ error: 'vendor_id and (body or template_id) required' });
   }
   let messageBody = body;
   if (!messageBody && template_id) {
-    const t = db.prepare('SELECT body FROM templates WHERE id = ?').get(template_id);
+    const t = db.prepare(`SELECT body FROM templates WHERE id = @id AND ${orgFilter()}`).get({ id: template_id, orgId: req.orgId });
     if (!t) return res.status(404).json({ error: 'template_not_found' });
     messageBody = t.body;
   }
   const scheduleMs = Number(req.body.scheduled_at) || 0;
   const future = scheduleMs > Date.now() + 30_000;
   const r = db.prepare(`
-    INSERT INTO messages (vendor_id, direction, body, status, scheduled_at, next_attempt_at)
-    VALUES (?, 'out', ?, ?, ?, ?)
-  `).run(vendor_id, messageBody, future ? 'scheduled' : 'queued', future ? scheduleMs : null, future ? scheduleMs : null);
-  if (!future) wa.enqueueMessage(r.lastInsertRowid);
+    INSERT INTO messages (organization_id, vendor_id, direction, body, status, scheduled_at, next_attempt_at)
+    VALUES (?, ?, 'out', ?, ?, ?, ?)
+  `).run(req.orgId, vendor_id, messageBody, future ? 'scheduled' : 'queued', future ? scheduleMs : null, future ? scheduleMs : null);
+  if (!future) transports.sendMessage('whatsapp', r.lastInsertRowid);
   res.json({ id: r.lastInsertRowid, queued: !future, scheduled_at: future ? scheduleMs : null });
 });
 
-router.post('/bulk', (req, res) => {
+router.post('/bulk', body({
+  vendor_ids: S.array({ of: S.int({ min: 1 }), maxItems: 100000 }),
+  template_id: S.int({ min: 1 }),
+  body: S.text(),
+  campaign_name: S.string({ maxLength: 200 }),
+  scheduled_at: S.int({ min: 0 }),
+}), (req, res) => {
   const { vendor_ids, template_id, body, campaign_name, scheduled_at } = req.body;
   if (!Array.isArray(vendor_ids) || !vendor_ids.length) {
     return res.status(400).json({ error: 'vendor_ids[] required' });
@@ -76,7 +98,7 @@ router.post('/bulk', (req, res) => {
   let messageBody = body;
   let tid = template_id || null;
   if (!messageBody && tid) {
-    const t = db.prepare('SELECT body FROM templates WHERE id = ?').get(tid);
+    const t = db.prepare(`SELECT body FROM templates WHERE id = @id AND ${orgFilter()}`).get({ id: tid, orgId: req.orgId });
     if (!t) return res.status(404).json({ error: 'template_not_found' });
     messageBody = t.body;
   }
@@ -86,9 +108,10 @@ router.post('/bulk', (req, res) => {
   const future = scheduleMs > Date.now() + 30_000;
 
   const camp = db.prepare(`
-    INSERT INTO campaigns (name, template_id, status, total_targets, started_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO campaigns (organization_id, name, template_id, status, total_targets, started_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(
+    req.orgId,
     campaign_name || `Campaign ${new Date().toISOString()}`,
     tid,
     future ? 'scheduled' : 'running',
@@ -98,14 +121,14 @@ router.post('/bulk', (req, res) => {
   const campaignId = camp.lastInsertRowid;
 
   const insertMsg = db.prepare(`
-    INSERT INTO messages (vendor_id, campaign_id, direction, body, status, scheduled_at, next_attempt_at)
-    VALUES (?, ?, 'out', ?, ?, ?, ?)
+    INSERT INTO messages (organization_id, vendor_id, campaign_id, direction, body, status, scheduled_at, next_attempt_at)
+    VALUES (?, ?, ?, 'out', ?, ?, ?, ?)
   `);
   const tx = db.transaction((ids) => {
     const out = [];
     for (const vid of ids) {
       const r = insertMsg.run(
-        vid, campaignId, messageBody,
+        req.orgId, vid, campaignId, messageBody,
         future ? 'scheduled' : 'queued',
         future ? scheduleMs : null,
         future ? scheduleMs : null,
@@ -115,18 +138,18 @@ router.post('/bulk', (req, res) => {
     return out;
   });
   const ids = tx(vendor_ids);
-  if (!future) for (const id of ids) wa.enqueueMessage(id);
+  if (!future) for (const id of ids) transports.sendMessage('whatsapp', id);
   res.json({ campaign_id: campaignId, queued: !future ? ids.length : 0, scheduled: future ? ids.length : 0, scheduled_at: future ? scheduleMs : null });
 });
 
 router.get('/', (req, res) => {
   const { vendor_id, campaign_id, status, limit = 200 } = req.query;
-  const filters = [];
-  const params = {};
+  const filters = [orgFilter('m')];
+  const params = { orgId: req.orgId };
   if (vendor_id) { filters.push('m.vendor_id = @vendor_id'); params.vendor_id = vendor_id; }
   if (campaign_id) { filters.push('m.campaign_id = @campaign_id'); params.campaign_id = campaign_id; }
   if (status) { filters.push('m.status = @status'); params.status = status; }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT m.*, v.name AS vendor_name, v.phone AS vendor_phone
     FROM messages m JOIN vendors v ON v.id = m.vendor_id
@@ -150,9 +173,10 @@ router.get('/stats/by-template', (req, res) => {
     FROM templates t
     LEFT JOIN campaigns c ON c.template_id = t.id
     LEFT JOIN messages m ON m.campaign_id = c.id
+    WHERE ${orgFilter('t')}
     GROUP BY t.id, t.name
     ORDER BY sent DESC NULLS LAST
-  `).all();
+  `).all({ orgId: req.orgId });
   res.json(rows);
 });
 
@@ -165,22 +189,41 @@ router.get('/stats/summary', (req, res) => {
       SUM(CASE WHEN direction='out' AND status='read' THEN 1 ELSE 0 END) AS read_count,
       SUM(CASE WHEN direction='out' AND status='failed' THEN 1 ELSE 0 END) AS failed,
       SUM(CASE WHEN direction='in' THEN 1 ELSE 0 END) AS replies,
-      SUM(CASE WHEN direction='out' AND created_at >= ? THEN 1 ELSE 0 END) AS sent_today
-    FROM messages
-  `).get(today.getTime());
+      SUM(CASE WHEN direction='out' AND created_at >= @today THEN 1 ELSE 0 END) AS sent_today
+    FROM messages WHERE ${orgFilter()}
+  `).get({ today: today.getTime(), orgId: req.orgId });
   res.json(totals);
 });
 
 // Cancel a still-pending message. Only allowed for queued/scheduled rows;
 // once a message has been claimed by the worker (sending/sent/delivered/read), refuse.
 router.delete('/:id', (req, res) => {
-  const m = db.prepare('SELECT id, status FROM messages WHERE id = ?').get(req.params.id);
+  const m = db.prepare(`SELECT id, status FROM messages WHERE id = @id AND ${orgFilter()}`).get({ id: req.params.id, orgId: req.orgId });
   if (!m) return res.status(404).json({ error: 'not_found' });
   if (m.status !== 'queued' && m.status !== 'scheduled') {
     return res.status(409).json({ error: 'cannot_cancel', detail: `message is ${m.status}` });
   }
-  db.prepare(`UPDATE messages SET status='cancelled', error='cancelled by user' WHERE id = ?`).run(req.params.id);
+  db.prepare(`UPDATE messages SET status='cancelled', error='cancelled by user' WHERE id = @id AND ${orgFilter()}`).run({ id: req.params.id, orgId: req.orgId });
   res.json({ ok: true });
+});
+
+// Bulk cancel: only messages still queued/scheduled can be cancelled; others
+// (already sending/sent/...) are skipped and reported back.
+router.post('/delete-bulk', body({ ids: S.array({ of: S.int({ min: 1 }), maxItems: 10000 }) }), (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids_array_required' });
+  const sel = db.prepare(`SELECT status FROM messages WHERE id = @id AND ${orgFilter()}`);
+  const upd = db.prepare(`UPDATE messages SET status='cancelled', error='cancelled by user' WHERE id = @id AND ${orgFilter()}`);
+  let deleted = 0, skipped = 0;
+  const tx = db.transaction((rows) => {
+    for (const id of rows) {
+      const m = sel.get({ id, orgId: req.orgId });
+      if (m && (m.status === 'queued' || m.status === 'scheduled')) { upd.run({ id, orgId: req.orgId }); deleted++; }
+      else skipped++;
+    }
+  });
+  tx(ids);
+  res.json({ deleted, skipped });
 });
 
 module.exports = router;

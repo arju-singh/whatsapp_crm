@@ -40,35 +40,48 @@ const Sidebar = ({ route, setRoute, openCmd, openWaQr }) => {
   const inboxBadge = window.NOTIFICATIONS_UNREAD || 0;
   const me = (window.TEAM || []).find((u) => u.name && u.name.startsWith('You'));
 
+  // Module gating: items tagged with `mod` only show when that feature module is
+  // enabled for the org; items tagged with `perm` only show when the role grants
+  // it. Untagged items are core and always visible. If the platform state didn't
+  // load, fall back to showing everything (never hide the whole app on a hiccup).
+  const enabled = window.MODULES_ENABLED;
+  const perms = window.PERMISSIONS;
+  const hasMod = (m) => !m || !enabled || enabled.size === 0 || enabled.has(m);
+  const hasPerm = (p) => !p || !perms || perms.size === 0 || perms.has(p);
+  const visible = (arr) => arr.filter((it) => hasMod(it.mod) && hasPerm(it.perm));
+
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'inbox', label: 'Inbox', icon: 'inbox', badge: inboxBadge || null },
   ];
-  const work = [
+  const work = visible([
     { id: 'contacts', label: 'Leads / Clients', icon: 'people' },
-    { id: 'companies', label: 'Companies', icon: 'building' },
-    { id: 'deals', label: 'Pipeline', icon: 'pipeline', badge: dealCount || null },
-    { id: 'callLogs', label: 'Call logs', icon: 'phone' },
+    { id: 'companies', label: 'Companies', icon: 'building', mod: 'deals' },
+    { id: 'deals', label: 'Pipeline', icon: 'pipeline', badge: dealCount || null, mod: 'deals' },
+    { id: 'properties', label: 'Properties', icon: 'building', mod: 'realestate', perm: 'properties.read' },
+    { id: 'callLogs', label: 'Call logs', icon: 'phone', mod: 'calling' },
     { id: 'followUps', label: 'Follow-ups', icon: 'bell', badge: followUpCount || null },
     { id: 'tasks', label: 'Tasks', icon: 'check-list', badge: taskCount || null },
     { id: 'calendar', label: 'Calendar', icon: 'calendar' },
-  ];
-  const grow = [
-    { id: 'reports', label: 'Reports', icon: 'chart' },
+  ]);
+  const grow = visible([
+    { id: 'reports', label: 'Reports', icon: 'chart', mod: 'deals' },
     { id: 'templates', label: 'Templates', icon: 'note' },
     { id: 'messages', label: 'Outbox', icon: 'send' },
-    { id: 'leads', label: 'Find leads', icon: 'globe' },
+    { id: 'leads', label: 'Find leads', icon: 'globe', mod: 'leadfinder' },
     { id: 'campaigns', label: 'Campaigns', icon: 'megaphone' },
-    { id: 'tickets', label: 'Tickets', icon: 'ticket', badge: ticketCount || null },
+    { id: 'tickets', label: 'Tickets', icon: 'ticket', badge: ticketCount || null, mod: 'support' },
     { id: 'automations', label: 'Automations', icon: 'flow' },
-  ];
+  ]);
   const authUser = window.CURRENT_USER;
   const canManageUsers = authUser && (authUser.role === 'admin' || authUser.role === 'super_admin');
-  const sys = [
+  const sys = visible([
     { id: 'team', label: 'Team', icon: 'team' },
     ...(canManageUsers ? [{ id: 'users', label: 'Users & access', icon: 'people' }] : []),
+    { id: 'dataStudio', label: 'Data Studio', icon: 'flow', mod: 'metadata', perm: 'objects.read' },
+    { id: 'modules', label: 'Modules', icon: 'flow', perm: 'modules.manage' },
     { id: 'settings', label: 'Settings', icon: 'settings' },
-  ];
+  ]);
 
   const NavGroup = ({ title, items }) => (
     <>
@@ -91,11 +104,11 @@ const Sidebar = ({ route, setRoute, openCmd, openWaQr }) => {
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-mark">A</div>
-        <div className="brand-name">Arju_CRM<span className="accent">.</span></div>
+        <div className="brand-name">WhatsApp CRM<span className="accent">.</span></div>
       </div>
       <div className="workspace-switcher">
         <div>
-          <div className="ws-name">Arju_CRM</div>
+          <div className="ws-name">WhatsApp CRM</div>
           <div className="ws-meta">Sales · Pro plan</div>
         </div>
         <Icon name="caret-down" size={12} />

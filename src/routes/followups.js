@@ -1,7 +1,20 @@
 const express = require('express');
 const db = require('../db');
+const { body, S } = require('../validate');
+const { orgFilter } = require('../tenancy');
 
 const router = express.Router();
+
+const ruleBodySchema = {
+  name: S.string({ maxLength: 200 }),
+  trigger: S.string({ maxLength: 60 }),
+  delay_hours: S.int({ min: 0 }),
+  template_id: S.int({ min: 1 }),
+  max_attempts: S.int({ min: 1 }),
+  stop_on_reply: S.flag(),
+  active: S.flag(),
+  channel: S.string({ maxLength: 60 }),
+};
 
 // Rules CRUD
 router.get('/rules', (req, res) => {
@@ -11,11 +24,12 @@ router.get('/rules', (req, res) => {
     FROM followup_rules r
     LEFT JOIN templates t ON t.id = r.template_id AND COALESCE(r.channel,'whatsapp') = 'whatsapp'
     LEFT JOIN email_templates et ON et.id = r.template_id AND r.channel = 'email'
+    WHERE ${orgFilter('r')}
     ORDER BY r.created_at DESC
-  `).all());
+  `).all({ orgId: req.orgId }));
 });
 
-router.post('/rules', (req, res) => {
+router.post('/rules', body(ruleBodySchema), (req, res) => {
   const { name, trigger, delay_hours, template_id, max_attempts, stop_on_reply, active, channel } = req.body;
   if (!name || !trigger || !delay_hours || !template_id) {
     return res.status(400).json({ error: 'name, trigger, delay_hours, template_id required' });
@@ -25,24 +39,24 @@ router.post('/rules', (req, res) => {
   }
   const ch = channel === 'email' ? 'email' : 'whatsapp';
   const r = db.prepare(`
-    INSERT INTO followup_rules (name, trigger, delay_hours, template_id, max_attempts, stop_on_reply, active, channel)
-    VALUES (?, ?, ?, ?, COALESCE(?, 3), COALESCE(?, 1), COALESCE(?, 1), ?)
-  `).run(name, trigger, delay_hours, template_id, max_attempts, stop_on_reply, active, ch);
+    INSERT INTO followup_rules (organization_id, name, trigger, delay_hours, template_id, max_attempts, stop_on_reply, active, channel)
+    VALUES (?, ?, ?, ?, ?, COALESCE(?, 3), COALESCE(?, 1), COALESCE(?, 1), ?)
+  `).run(req.orgId, name, trigger, delay_hours, template_id, max_attempts, stop_on_reply, active, ch);
   res.json({ id: r.lastInsertRowid });
 });
 
-router.put('/rules/:id', (req, res) => {
+router.put('/rules/:id', body(ruleBodySchema), (req, res) => {
   const allowed = ['name', 'trigger', 'delay_hours', 'template_id', 'max_attempts', 'stop_on_reply', 'active', 'channel'];
   const sets = [];
-  const params = { id: req.params.id };
+  const params = { id: req.params.id, orgId: req.orgId };
   for (const k of allowed) if (req.body[k] !== undefined) { sets.push(`${k} = @${k}`); params[k] = req.body[k]; }
   if (!sets.length) return res.json({ ok: true });
-  db.prepare(`UPDATE followup_rules SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  db.prepare(`UPDATE followup_rules SET ${sets.join(', ')} WHERE id = @id AND ${orgFilter()}`).run(params);
   res.json({ ok: true });
 });
 
 router.delete('/rules/:id', (req, res) => {
-  db.prepare('DELETE FROM followup_rules WHERE id = ?').run(req.params.id);
+  db.prepare(`UPDATE followup_rules SET deleted_at = @now WHERE id = @id AND ${orgFilter()}`).run({ id: req.params.id, orgId: req.orgId, now: Date.now() });
   res.json({ ok: true });
 });
 
@@ -53,14 +67,14 @@ router.get('/pending', (req, res) => {
     FROM followups f
     JOIN vendors v ON v.id = f.vendor_id
     JOIN followup_rules r ON r.id = f.rule_id
-    WHERE f.status = 'pending'
+    WHERE f.status = 'pending' AND ${orgFilter('f')}
     ORDER BY f.scheduled_at ASC LIMIT 500
-  `).all();
+  `).all({ orgId: req.orgId });
   res.json(rows);
 });
 
-router.post('/cancel/:id', (req, res) => {
-  db.prepare("UPDATE followups SET status = 'cancelled' WHERE id = ?").run(req.params.id);
+router.post('/cancel/:id', body({}), (req, res) => {
+  db.prepare(`UPDATE followups SET status = 'cancelled' WHERE id = @id AND ${orgFilter()}`).run({ id: req.params.id, orgId: req.orgId });
   res.json({ ok: true });
 });
 
@@ -71,8 +85,8 @@ router.get('/stats/summary', (req, res) => {
       SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent,
       SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END) AS cancelled,
       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
-    FROM followups
-  `).get();
+    FROM followups WHERE ${orgFilter()}
+  `).get({ orgId: req.orgId });
   res.json(totals);
 });
 

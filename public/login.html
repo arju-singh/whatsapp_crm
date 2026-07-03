@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in — Arju_CRM</title>
+  <title>Sign in — WhatsApp CRM</title>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -62,7 +62,7 @@
   <div class="card">
     <div class="brand">
       <div class="brand-mark">A</div>
-      <div class="brand-name">Arju_CRM<span class="dot">.</span></div>
+      <div class="brand-name">WhatsApp CRM<span class="dot">.</span></div>
     </div>
 
     <div class="tabs">
@@ -83,6 +83,32 @@
 
       <button class="primary" id="btn-in" type="submit">Sign in</button>
       <div id="err-in" class="err"></div>
+      <div style="margin-top:12px;text-align:center">
+        <a href="#" id="forgot-link" style="font-size:12px;color:var(--muted)">Forgot your password?</a>
+      </div>
+    </form>
+
+    <!-- Google OAuth (shown only if configured server-side) -->
+    <div id="google-wrap" class="hidden" style="margin-top:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--muted);font-size:11px">
+        <span style="flex:1;height:1px;background:var(--rule)"></span>OR<span style="flex:1;height:1px;background:var(--rule)"></span>
+      </div>
+      <a href="/api/auth/google" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;border:1px solid var(--rule);border-radius:6px;text-decoration:none;color:var(--ink);font-size:14px;font-weight:600;background:white">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.8-6.8C35.6 2.4 30.1 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.9 6.1C12.3 13.2 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9.1h12.4c-.5 2.9-2.1 5.3-4.6 7l7.1 5.5c4.2-3.9 6.6-9.6 6.6-17z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.4-.8-2.9-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C.9 16.6 0 20.2 0 24s.9 7.4 2.5 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.1 0 11.3-2 15-5.5l-7.1-5.5c-2 1.4-4.6 2.2-7.9 2.2-6.3 0-11.7-3.7-13.6-9.4l-7.9 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
+        Continue with Google
+      </a>
+    </div>
+
+    <!-- Forgot-password form -->
+    <form id="form-forgot" class="hidden">
+      <h1>Reset your password</h1>
+      <div class="sub">Enter your email or phone. If we have an email on file, we'll send a reset link.</div>
+      <label for="fg-id">Email or phone</label>
+      <input id="fg-id" type="text" autofocus required>
+      <button class="primary" id="btn-forgot" type="submit">Send reset link</button>
+      <div id="err-forgot" class="err"></div>
+      <div id="ok-forgot" class="ok hidden">✓ If an account with an email exists, a reset link is on its way. Check your inbox.</div>
+      <div style="margin-top:12px;text-align:center"><a href="#" id="back-in" style="font-size:12px;color:var(--muted)">← Back to sign in</a></div>
     </form>
 
     <!-- Sign-up form -->
@@ -96,6 +122,9 @@
       <label for="up-phone">Phone (with country code)</label>
       <input id="up-phone" type="tel" autocomplete="username" required>
 
+      <label for="up-email">Email <span style="color:var(--muted);font-weight:400">(for verification &amp; password reset)</span></label>
+      <input id="up-email" type="email" autocomplete="email" placeholder="you@company.com">
+
       <label for="up-password">Choose a password</label>
       <input id="up-password" type="password" autocomplete="new-password" placeholder="At least 6 characters" required minlength="6">
 
@@ -104,26 +133,60 @@
       <div id="ok-up" class="ok hidden">✓ Request submitted. An admin will activate your account shortly. You'll be able to sign in once it's approved.</div>
     </form>
 
-    <div class="hint">By signing in you agree this CRM is for authorized use only.</div>
+    <div class="hint">By continuing you agree to our <a href="/terms" style="color:var(--muted)">Terms</a> and <a href="/privacy" style="color:var(--muted)">Privacy Policy</a>.</div>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     const tabIn = $('tab-in'), tabUp = $('tab-up');
-    const formIn = $('form-in'), formUp = $('form-up');
+    const formIn = $('form-in'), formUp = $('form-up'), formForgot = $('form-forgot');
+    const tabsEl = document.querySelector('.tabs'), googleWrap = $('google-wrap');
     const setTab = (which) => {
       const isUp = which === 'up';
+      tabsEl.classList.remove('hidden');
       tabIn.classList.toggle('active', !isUp);
       tabUp.classList.toggle('active', isUp);
       formIn.classList.toggle('hidden', isUp);
       formUp.classList.toggle('hidden', !isUp);
+      formForgot.classList.add('hidden');
+      googleWrap.classList.toggle('hidden', isUp || googleWrap.dataset.enabled !== '1');
       ($(isUp ? 'up-name' : 'in-phone')).focus();
+    };
+    const setForgot = () => {
+      tabsEl.classList.add('hidden');
+      formIn.classList.add('hidden'); formUp.classList.add('hidden');
+      googleWrap.classList.add('hidden');
+      formForgot.classList.remove('hidden');
+      $('fg-id').focus();
     };
     tabIn.onclick = () => { setTab('in'); history.replaceState(null, '', '/login'); };
     tabUp.onclick = () => { setTab('up'); history.replaceState(null, '', '/login#signup'); };
+    $('forgot-link').onclick = (e) => { e.preventDefault(); setForgot(); };
+    $('back-in').onclick = (e) => { e.preventDefault(); setTab('in'); };
 
     // Open signup tab if landed via /login#signup
     if (location.hash === '#signup') setTab('up');
+
+    // Show Google button only if the server has OAuth configured.
+    fetch('/api/auth/google/config').then((r) => r.json()).then((c) => {
+      if (c && c.google) { googleWrap.dataset.enabled = '1'; if (formIn.classList.contains('hidden') === false) googleWrap.classList.remove('hidden'); }
+    }).catch(() => {});
+
+    // Forgot-password submit
+    formForgot.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = $('err-forgot'), ok = $('ok-forgot'), btn = $('btn-forgot');
+      err.textContent = ''; ok.classList.add('hidden');
+      btn.disabled = true; btn.textContent = 'Sending…';
+      const id = $('fg-id').value.trim();
+      const isEmail = id.includes('@');
+      try {
+        await fetch('/api/auth/forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(isEmail ? { email: id } : { phone: id }) });
+        ok.classList.remove('hidden');
+      } catch (_) { err.textContent = 'Network error. Try again.'; }
+      btn.disabled = false; btn.textContent = 'Send reset link';
+    });
 
     formIn.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -164,15 +227,21 @@
           body: JSON.stringify({
             name: $('up-name').value,
             phone: $('up-phone').value,
+            email: $('up-email').value,
             password: $('up-password').value,
           }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) {
           if (j.error === 'phone_already_registered') throw new Error('That phone number is already registered. Sign in instead.');
+          if (j.error === 'email_already_registered') throw new Error('That email is already registered. Sign in instead.');
+          if (j.error === 'invalid_email') throw new Error('Please enter a valid email address.');
           if (j.error === 'password_too_short') throw new Error('Password must be at least 6 characters.');
           throw new Error(j.error || 'Sign up failed');
         }
+        ok.textContent = j.email_verification
+          ? '✓ Request submitted. Check your email to verify your address. An admin will activate your account shortly.'
+          : '✓ Request submitted. An admin will activate your account shortly. You\'ll be able to sign in once it\'s approved.';
         ok.classList.remove('hidden');
         formUp.reset();
         btn.disabled = false; btn.textContent = 'Request access';

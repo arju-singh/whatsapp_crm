@@ -179,6 +179,7 @@ const Templates = () => {
   const [stats, setStats] = React.useState([]);
   const [q, setQ] = React.useState('');
   const [cat, setCat] = React.useState('all');
+  const sel = useMultiSelect();
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -204,6 +205,16 @@ const Templates = () => {
     load();
   };
 
+  const filteredIds = filtered.map((t) => t.id);
+  const deleteSelected = async () => {
+    const ids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/templates/delete-bulk', ids, confirmMsg: `Delete ${ids.length} template${ids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    load();
+  };
+
   return (
     <div className="page slide-up">
       <div className="page-h">
@@ -213,6 +224,7 @@ const Templates = () => {
           <div className="page-sub">Re-usable WhatsApp messages with variables, links, and media. Use them when sending to one lead or in bulk.</div>
         </div>
         <div className="page-actions">
+          {filtered.length > 0 && <button className="btn" onClick={() => sel.toggleAll(filteredIds)}><Icon name="check" size={12} />{sel.allSelected(filteredIds) ? 'Unselect all' : 'Select all'}</button>}
           <button className="btn" onClick={load}><Icon name="bolt" size={12} />Refresh</button>
           <button className="btn primary" onClick={() => setEditing({ new: true })}><Icon name="plus" size={12} />New template</button>
         </div>
@@ -253,8 +265,9 @@ const Templates = () => {
         {filtered.map((t) => {
           const s = findStat(t.id);
           return (
-            <div key={t.id} className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column' }}>
-              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+            <div key={t.id} className={'card' + (sel.selected.has(t.id) ? ' is-selected' : '')} style={{ padding: 14, display: 'flex', flexDirection: 'column' }}>
+              <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+                <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggle(t.id)} title="Select" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }} className="trunc">{t.name}</div>
                   {t.category && <span className="chip" style={{ fontSize: 10 }}>{t.category}</span>}
@@ -288,6 +301,7 @@ const Templates = () => {
       <datalist id="tpl-categories">
         {cats.map((c) => <option key={c} value={c} />)}
       </datalist>
+      <BulkBar count={sel.selected.size} onClear={sel.clear} actions={[{ label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected }]} />
     </div>
   );
 };
@@ -538,10 +552,13 @@ const SendMessageModal = ({ open, prefill, onClose }) => {
             }} dangerouslySetInnerHTML={{
               __html: (preview || body || '<span style="color:#888">Type a message or pick a template…</span>')
                 .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
                 .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
                 .replace(/_([^_\n]+)_/g, '<i>$1</i>')
                 .replace(/~([^~\n]+)~/g, '<s>$1</s>')
-                .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" style="color:#075e54">$1</a>'),
+                // URL chars are already entity-escaped above (no raw <>"'), so the
+                // captured URL cannot break out of the href attribute it's placed in.
+                .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#075e54">$1</a>'),
             }} />
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
               {body.length} chars · {vendorIds.length} recipient{vendorIds.length === 1 ? '' : 's'}
@@ -625,6 +642,7 @@ const Messages = () => {
   const [campaign, setCampaign] = React.useState('all');
   const [q, setQ] = React.useState('');
   const [campaigns, setCampaigns] = React.useState([]);
+  const sel = useMultiSelect();
 
   const reload = React.useCallback(() => {
     setLoading(true);
@@ -676,6 +694,18 @@ const Messages = () => {
     // The DB allows direct UPDATE since we don't have a dedicated route — use the inbox/reply or write a small route.
     // For now just delete. Backend deletes are guarded.
     await fetch(`/api/messages/${id}`, { method: 'DELETE' }).catch(() => {});
+    reload();
+  };
+
+  // Only queued/scheduled messages can be cancelled — selection is limited to those.
+  const cancellable = filtered.filter((r) => r.status === 'queued' || r.status === 'scheduled');
+  const cancellableIds = cancellable.map((r) => r.id);
+  const cancelSelected = async () => {
+    const ids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/messages/delete-bulk', ids, confirmMsg: `Cancel ${ids.length} message${ids.length > 1 ? 's' : ''}? They won't be delivered.` });
+    if (!r) return;
+    alert(`${r.deleted} cancelled${r.skipped ? `, ${r.skipped} skipped (already sent)` : ''}.`);
+    sel.clear();
     reload();
   };
 
@@ -744,6 +774,7 @@ const Messages = () => {
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 32 }}><input type="checkbox" checked={cancellableIds.length > 0 && cancellableIds.every((id) => sel.selected.has(id))} onChange={() => sel.toggleAll(cancellableIds)} title="Select cancellable messages" /></th>
                 <th style={{ width: 48, textAlign: 'right' }}>S.No</th>
                 <th>When</th>
                 <th>Lead</th>
@@ -757,15 +788,17 @@ const Messages = () => {
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Loading…</td></tr>}
-              {!loading && filtered.length === 0 && <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>No messages match these filters.</td></tr>}
+              {loading && <tr><td colSpan={11} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Loading…</td></tr>}
+              {!loading && filtered.length === 0 && <tr><td colSpan={11} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>No messages match these filters.</td></tr>}
               {filtered.map((r, i) => {
                 const m = STATUS_META[r.status] || { label: r.status || '?', color: '#7A7670' };
                 const camp = campaigns.find((c) => c.id === r.campaign_id);
                 const isReply = r.direction === 'in';
+                const canCancel = r.status === 'queued' || r.status === 'scheduled';
                 const sched = r.status === 'scheduled' && r.scheduled_at ? new Date(r.scheduled_at).toLocaleString() : null;
                 return (
-                  <tr key={r.id}>
+                  <tr key={r.id} className={sel.selected.has(r.id) ? 'is-selected' : ''}>
+                    <td>{canCancel && <input type="checkbox" checked={sel.selected.has(r.id)} onChange={() => sel.toggle(r.id)} />}</td>
                     <td className="mono" style={{ textAlign: 'right', color: 'var(--muted)', fontSize: 11 }}>{i + 1}</td>
                     <td className="mono" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
                       {fmtMsgWhen(r.created_at)}
@@ -799,6 +832,7 @@ const Messages = () => {
           </table>
         </div>
       </div>
+      <BulkBar count={sel.selected.size} onClear={sel.clear} actions={[{ label: 'Cancel', icon: 'x', variant: 'danger', onClick: cancelSelected }]} />
     </div>
   );
 };

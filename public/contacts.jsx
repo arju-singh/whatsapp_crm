@@ -433,6 +433,14 @@ const Contacts = () => {
   const [bizOnly, setBizOnly] = React.useState(false);
   const [open, setOpen] = React.useState(null);
   const [selected, setSelected] = React.useState(new Set());
+  const deleteSelected = async () => {
+    const ids = [...selected];
+    const r = await window.bulkRun({ url: '/api/vendors/delete-bulk', ids, confirmMsg: `Delete ${ids.length} lead${ids.length > 1 ? 's' : ''}? This cannot be undone.` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    setSelected(new Set());
+    await refreshStore();
+  };
   if (!ready) return null;
   const all = window.CONTACTS || [];
   const bizCount = all.filter((c) => c.isBusiness).length;
@@ -460,11 +468,6 @@ const Contacts = () => {
           <div className="page-sub">Stores you've contacted, are calling, or have closed — sorted by city.</div>
         </div>
         <div className="page-actions">
-          {selected.size > 0 && (
-            <button className="btn primary" onClick={() => window.openSendMessage && window.openSendMessage({ vendor_ids: [...selected] })}>
-              <Icon name="send" size={12} />Send WhatsApp ({selected.size})
-            </button>
-          )}
           <button className="btn" onClick={() => importFromWhatsApp()}><Icon name="phone" size={12} />Import from WhatsApp</button>
           <TemplatePicker />
           <button className="btn" onClick={() => importVendorsFlow()}><Icon name="link" size={12} />Import Excel/CSV</button>
@@ -539,6 +542,14 @@ const Contacts = () => {
         </div>
       </div>
       {open && <ContactDrawer contact={open} onClose={() => setOpen(null)} />}
+      <BulkBar
+        count={selected.size}
+        onClear={() => setSelected(new Set())}
+        actions={[
+          { label: 'Send WhatsApp', icon: 'send', variant: 'primary', onClick: () => window.openSendMessage && window.openSendMessage({ vendor_ids: [...selected] }) },
+          { label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected },
+        ]}
+      />
     </div>
   );
 };
@@ -583,9 +594,19 @@ async function importVendorsFlow() {
 const Companies = () => {
   const { ready } = useStore();
   const [open, setOpen] = React.useState(null);
+  const sel = useMultiSelect();
   if (!ready) return null;
   const cos = window.COMPANIES || [];
+  const ids = cos.map((c) => c.raw_id);
   const totalMrr = cos.reduce((s, c) => s + (c.mrr || 0), 0);
+  const deleteSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/companies/delete-bulk', ids: sids, confirmMsg: `Delete ${sids.length} compan${sids.length > 1 ? 'ies' : 'y'}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    await refreshStore();
+  };
   return (
     <div className="page slide-up">
       <div className="page-h">
@@ -594,14 +615,16 @@ const Companies = () => {
           <h1 className="page-title">Companies you <em>care about</em></h1>
         </div>
         <div className="page-actions">
+          {cos.length > 0 && <button className="btn" onClick={() => sel.toggleAll(ids)}><Icon name="check" size={12} />{sel.allSelected(ids) ? 'Unselect all' : 'Select all'}</button>}
           <button className="btn"><Icon name="filter" size={12} />Tier: All</button>
           <button className="btn primary" onClick={() => window.openNewCompany && window.openNewCompany()}><Icon name="plus" size={12} />New company</button>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
         {cos.map((co) => (
-          <div key={co.id} className="card" style={{ padding: 16, cursor: 'pointer', transition: 'all .15s' }} onClick={() => setOpen(co)}>
+          <div key={co.id} className={'card' + (sel.selected.has(co.raw_id) ? ' is-selected' : '')} style={{ padding: 16, cursor: 'pointer', transition: 'all .15s' }} onClick={() => setOpen(co)}>
             <div className="row" style={{ gap: 10, marginBottom: 12 }}>
+              <input type="checkbox" checked={sel.selected.has(co.raw_id)} onClick={(e) => e.stopPropagation()} onChange={() => sel.toggle(co.raw_id)} title="Select" />
               <div style={{ width: 40, height: 40, borderRadius: 8, background: co.color, color: 'white', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 14 }}>{co.logo}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }} className="trunc">{co.name}</div>
@@ -627,6 +650,7 @@ const Companies = () => {
         ))}
       </div>
       {open && <CompanyDrawer company={open} onClose={() => setOpen(null)} />}
+      <BulkBar count={sel.selected.size} onClear={sel.clear} actions={[{ label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected }]} />
     </div>
   );
 };

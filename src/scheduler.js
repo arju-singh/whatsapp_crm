@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const db = require('./db');
-const wa = require('./whatsapp');
+const transports = require('./transports'); // unified send across WhatsApp/email
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -80,7 +80,7 @@ function fireDueFollowups() {
         VALUES (?, ?, 'out', ?, ?, ?, ?, 'queued')
       `).run(vendor.id, t.id, vendor.email, t.subject, t.body_html, t.body_text || null);
       db.prepare("UPDATE followups SET status = 'sent', fired_at = ? WHERE id = ?").run(now, f.id);
-      try { require('./email').enqueue(ins.lastInsertRowid); } catch (e) { console.error('[sched] email enqueue', e.message); }
+      try { transports.sendMessage('email', ins.lastInsertRowid); } catch (e) { console.error('[sched] email enqueue', e.message); }
     } else {
       const t = db.prepare('SELECT body FROM templates WHERE id = ?').get(f.template_id);
       if (!t) {
@@ -92,7 +92,7 @@ function fireDueFollowups() {
         VALUES (?, ?, 'out', ?, 'queued')
       `).run(f.vendor_id, f.id, t.body);
       db.prepare("UPDATE followups SET status = 'sent', fired_at = ? WHERE id = ?").run(now, f.id);
-      wa.enqueueMessage(msg.lastInsertRowid);
+      transports.sendMessage('whatsapp', msg.lastInsertRowid);
     }
 
     if (f.attempt < f.max_attempts) {
@@ -116,7 +116,7 @@ function requeueScheduledMessages() {
     const c = db.prepare(`
       UPDATE messages SET status = 'queued' WHERE id = ? AND status = 'scheduled'
     `).run(r.id);
-    if (c.changes) wa.enqueueMessage(r.id);
+    if (c.changes) transports.sendMessage('whatsapp', r.id);
   }
 }
 

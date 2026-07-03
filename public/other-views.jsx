@@ -129,10 +129,20 @@ const Reports = () => {
 
 const Campaigns = () => {
   const { ready } = useStore();
+  const sel = useMultiSelect();
   if (!ready) return null;
   const statusColor = { live: 'sage', paused: 'ochre', draft: 'gray', running: 'sage' };
   const cs = window.CAMPAIGNS || [];
+  const ids = cs.map((c) => c.raw_id);
   const reached = cs.reduce((s, c) => s + c.sent, 0);
+  const deleteSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/campaigns/delete-bulk', ids: sids, confirmMsg: `Delete ${sids.length} campaign${sids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    await refreshStore();
+  };
   return (
     <div className="page slide-up">
       <div className="page-h">
@@ -141,6 +151,7 @@ const Campaigns = () => {
           <h1 className="page-title">Marketing <em>campaigns</em></h1>
         </div>
         <div className="page-actions">
+          {cs.length > 0 && <button className="btn" onClick={() => sel.toggleAll(ids)}><Icon name="check" size={12} />{sel.allSelected(ids) ? 'Unselect all' : 'Select all'}</button>}
           <button className="btn"><Icon name="doc" size={12} />Templates</button>
           <button className="btn primary" onClick={() => window.openNewCampaign && window.openNewCampaign()}><Icon name="plus" size={12} />New campaign</button>
         </div>
@@ -154,15 +165,18 @@ const Campaigns = () => {
             const openRate = c.sent ? (c.opened / c.sent * 100) : 0;
             const replyRate = c.sent ? (c.replied / c.sent * 100) : 0;
             return (
-              <div key={c.id} className="card" style={{ padding: 16 }}>
+              <div key={c.id} className={'card' + (sel.selected.has(c.raw_id) ? ' is-selected' : '')} style={{ padding: 16 }}>
                 <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-                  <div>
+                  <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+                    <input type="checkbox" checked={sel.selected.has(c.raw_id)} onChange={() => sel.toggle(c.raw_id)} title="Select" />
+                    <div>
                     <div className="row" style={{ gap: 8, marginBottom: 4 }}>
                       <span className={'chip ' + (statusColor[c.status] || 'gray')}>{c.status}</span>
                       <span className="chip">{c.channel}</span>
                     </div>
                     <div className="serif" style={{ fontSize: 18 }}>{c.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>by {c.owner}</div>
+                    </div>
                   </div>
                   <button className="icon-btn" onClick={async () => {
                     if (!confirm('Delete campaign?')) return;
@@ -195,14 +209,17 @@ const Campaigns = () => {
           })}
         </div>
       )}
+      <BulkBar count={sel.selected.size} onClear={sel.clear} actions={[{ label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected }]} />
     </div>
   );
 };
 
 const Tickets = () => {
   const { ready } = useStore();
+  const sel = useMultiSelect();
   if (!ready) return null;
   const ticks = window.TICKETS || [];
+  const ids = ticks.map((t) => t.raw_id);
   const priColor = { urgent: '#C9184A', high: '#E07A5F', med: '#D4A373', low: '#7A7670' };
   const statusColor = { open: 'accent', pending: 'ochre', solved: 'sage' };
   const grouped = {
@@ -216,6 +233,23 @@ const Tickets = () => {
     await refreshStore();
   };
 
+  const resolveSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/tickets/status-bulk', ids: sids, extra: { status: 'solved' }, confirmMsg: `Resolve ${sids.length} ticket${sids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.updated} resolved.`);
+    sel.clear();
+    await refreshStore();
+  };
+  const deleteSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/tickets/delete-bulk', ids: sids, confirmMsg: `Delete ${sids.length} ticket${sids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    await refreshStore();
+  };
+
   return (
     <div className="page slide-up">
       <div className="page-h">
@@ -224,6 +258,7 @@ const Tickets = () => {
           <h1 className="page-title">Customer <em>tickets</em></h1>
         </div>
         <div className="page-actions">
+          {ticks.length > 0 && <button className="btn" onClick={() => sel.toggleAll(ids)}><Icon name="check" size={12} />{sel.allSelected(ids) ? 'Unselect all' : 'Select all'}</button>}
           <button className="btn"><Icon name="filter" size={12} />Mine</button>
           <button className="btn primary" onClick={() => window.openNewTicket && window.openNewTicket()}><Icon name="plus" size={12} />New ticket</button>
         </div>
@@ -238,9 +273,12 @@ const Tickets = () => {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {items.map((t) => (
-                <div key={t.id} className="card" style={{ padding: 12, borderLeft: `3px solid ${priColor[t.priority]}` }}>
+                <div key={t.id} className={'card' + (sel.selected.has(t.raw_id) ? ' is-selected' : '')} style={{ padding: 12, borderLeft: `3px solid ${priColor[t.priority]}` }}>
                   <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span className="mono" style={{ fontSize: 10, color: 'var(--muted)' }}>#{t.id.toUpperCase()}</span>
+                    <span className="row" style={{ gap: 6 }}>
+                      <input type="checkbox" checked={sel.selected.has(t.raw_id)} onChange={() => sel.toggle(t.raw_id)} title="Select" />
+                      <span className="mono" style={{ fontSize: 10, color: 'var(--muted)' }}>#{t.id.toUpperCase()}</span>
+                    </span>
                     <span className="chip" style={{ fontSize: 10, color: priColor[t.priority] }}>{t.priority}</span>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>{t.subject}</div>
@@ -264,6 +302,14 @@ const Tickets = () => {
           </div>
         ))}
       </div>
+      <BulkBar
+        count={sel.selected.size}
+        onClear={sel.clear}
+        actions={[
+          { label: 'Resolve', icon: 'check', variant: 'primary', onClick: resolveSelected },
+          { label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected },
+        ]}
+      />
     </div>
   );
 };
@@ -594,12 +640,13 @@ const Settings = () => {
 
   const sections = [
     { t: 'AI agent', keys: ['anthropic_api_key', 'ai_model', 'ai_auto_draft_inbound', 'ai_business_profile'] },
+    { t: 'Lead-finder APIs (free tiers)', keys: ['foursquare_api_key', 'here_api_key', 'tomtom_api_key'] },
     { t: 'WhatsApp pacing', keys: ['wa_min_delay_ms', 'wa_max_delay_ms', 'wa_daily_cap', 'wa_max_attempts'] },
     { t: 'Email pacing', keys: ['email_daily_cap', 'email_max_attempts'] },
     { t: 'Quiet hours & region', keys: ['quiet_start', 'quiet_end', 'default_country_code', 'default_region'] },
     { t: 'Webhooks & secrets', keys: ['resend_webhook_secret', 'mailgun_signing_key', 'webhook_signature_required', 'test_number'] },
   ];
-  const SECRET = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'anthropic_api_key']);
+  const SECRET = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'anthropic_api_key', 'foursquare_api_key', 'here_api_key', 'tomtom_api_key']);
   const LONG = new Set(['ai_business_profile']);
 
   return (
@@ -690,6 +737,7 @@ const Settings = () => {
 const CallLogs = () => {
   const [rows, setRows] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const sel = useMultiSelect();
   const [disposition, setDisposition] = React.useState('all');
   const [outcome, setOutcome] = React.useState('all');
   const [direction, setDirection] = React.useState('all');
@@ -745,6 +793,16 @@ const CallLogs = () => {
   const updateField = async (id, field, value) => {
     await api('/api/calls/' + id, { method: 'PUT', body: { [field]: value } });
     setRows((rs) => rs.map((r) => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const filteredIds = filtered.map((r) => r.id);
+  const deleteSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/calls/delete-bulk', ids: sids, confirmMsg: `Delete ${sids.length} call log${sids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    reload();
   };
 
   const exportCsv = () => {
@@ -846,6 +904,7 @@ const CallLogs = () => {
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 32 }}><input type="checkbox" checked={filteredIds.length > 0 && filteredIds.every((id) => sel.selected.has(id))} onChange={() => sel.toggleAll(filteredIds)} /></th>
                 <th style={{ width: 48, textAlign: 'right' }}>S.No</th>
                 <th>When</th>
                 <th>Lead</th>
@@ -859,12 +918,13 @@ const CallLogs = () => {
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Loading…</td></tr>}
-              {!loading && filtered.length === 0 && <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>No calls match these filters.</td></tr>}
+              {loading && <tr><td colSpan={11} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>Loading…</td></tr>}
+              {!loading && filtered.length === 0 && <tr><td colSpan={11} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>No calls match these filters.</td></tr>}
               {filtered.map((r, i) => {
                 const disp = DISPS.find((d) => d.v === normDisp(r.disposition));
                 return (
-                  <tr key={r.id}>
+                  <tr key={r.id} className={sel.selected.has(r.id) ? 'is-selected' : ''}>
+                    <td><input type="checkbox" checked={sel.selected.has(r.id)} onChange={() => sel.toggle(r.id)} /></td>
                     <td className="mono" style={{ textAlign: 'right', color: 'var(--muted)', fontSize: 11 }}>{i + 1}</td>
                     <td className="mono" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fmtWhen(r.created_at)}</td>
                     <td><div style={{ fontWeight: 600, fontSize: 12 }} className="trunc">{r.vendor_name || '—'}</div></td>
@@ -918,6 +978,7 @@ const CallLogs = () => {
           </table>
         </div>
       </div>
+      <BulkBar count={sel.selected.size} onClear={sel.clear} actions={[{ label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected }]} />
     </div>
   );
 };
@@ -930,6 +991,7 @@ const FollowUps = () => {
   const { ready } = useStore();
   const [calls, setCalls] = React.useState([]);
   const [bucket, setBucket] = React.useState('all');
+  const sel = useMultiSelect();
 
   React.useEffect(() => {
     api('/api/calls?limit=300').then(setCalls).catch(() => setCalls([]));
@@ -1039,6 +1101,24 @@ const FollowUps = () => {
     if (it.contact && window.openCallLog) window.openCallLog(it.contact);
   };
 
+  // Bulk actions apply to task-type items only (callbacks are derived from calls).
+  const completeSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/tasks/complete-bulk', ids: sids, confirmMsg: `Mark ${sids.length} follow-up${sids.length > 1 ? 's' : ''} done?` });
+    if (!r) return;
+    alert(`${r.updated} completed.`);
+    sel.clear();
+    await refreshStore();
+  };
+  const deleteSelected = async () => {
+    const sids = [...sel.selected];
+    const r = await window.bulkRun({ url: '/api/tasks/delete-bulk', ids: sids, confirmMsg: `Delete ${sids.length} task${sids.length > 1 ? 's' : ''}?` });
+    if (!r) return;
+    alert(`${r.deleted} deleted.`);
+    sel.clear();
+    await refreshStore();
+  };
+
   const fmtDue = (ms) => {
     if (!ms) return 'no due date';
     const d = new Date(ms);
@@ -1060,7 +1140,10 @@ const FollowUps = () => {
         </div>
         <div className="card-b" style={{ padding: 0 }}>
           {list.map((it, i) => (
-            <div key={it.id} className="row" style={{ padding: '12px 16px', borderBottom: i < list.length - 1 ? '1px solid var(--rule-2)' : 'none', gap: 12, alignItems: 'center' }}>
+            <div key={it.id} className="row" style={{ padding: '12px 16px', borderBottom: i < list.length - 1 ? '1px solid var(--rule-2)' : 'none', gap: 12, alignItems: 'center', background: it.kind === 'task' && sel.selected.has(it.rawId) ? 'var(--hover)' : 'transparent' }}>
+              {it.kind === 'task'
+                ? <input type="checkbox" checked={sel.selected.has(it.rawId)} onChange={() => sel.toggle(it.rawId)} title="Select" style={{ accentColor: 'var(--accent)' }} />
+                : <span style={{ width: 13, display: 'inline-block', flexShrink: 0 }} />}
               <input type="checkbox" onChange={() => markDone(it)} title="Mark done" />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="row" style={{ gap: 6 }}>
@@ -1145,6 +1228,14 @@ const FollowUps = () => {
           <div style={{ fontSize: 13 }}>Schedule follow-ups when you log a call, or create a new task above.</div>
         </div>
       )}
+      <BulkBar
+        count={sel.selected.size}
+        onClear={sel.clear}
+        actions={[
+          { label: 'Mark done', icon: 'check', variant: 'primary', onClick: completeSelected },
+          { label: 'Delete', icon: 'trash', variant: 'danger', onClick: deleteSelected },
+        ]}
+      />
     </div>
   );
 };
@@ -1159,7 +1250,14 @@ const Leads = () => {
   const [scraping, setScraping] = React.useState(false);
   const [filter, setFilter] = React.useState('not_imported');
   const [selected, setSelected] = React.useState(new Set());
-  const [form, setForm] = React.useState({ source: 'google_maps', query: 'pet shop', city: 'Hisar', max: 20 });
+  const [sources, setSources] = React.useState([]);
+  const [form, setForm] = React.useState({ source: 'openstreetmap', query: 'pet shop', city: 'Hisar', max: 20 });
+
+  React.useEffect(() => {
+    api('/api/leads/sources').then((s) => setSources(Array.isArray(s) ? s : [])).catch(() => setSources([]));
+  }, []);
+  const activeSource = sources.find((s) => s.id === form.source);
+  const needsCity = activeSource ? activeSource.needsCity : false;
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -1199,10 +1297,24 @@ const Leads = () => {
     load(); refreshStore();
   };
 
+  const deleteSelected = async () => {
+    if (!selected.size) return alert('Select some leads first');
+    if (!confirm(`Delete ${selected.size} lead${selected.size > 1 ? 's' : ''}?`)) return;
+    const r = await api('/api/leads/delete-bulk', { method: 'POST', body: { ids: Array.from(selected) } });
+    alert(`${r.deleted} lead${r.deleted > 1 ? 's' : ''} deleted.`);
+    setSelected(new Set());
+    load();
+  };
+
   const toggleSelect = (id) => {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelected(next);
+  };
+
+  const allSelected = list.length > 0 && list.every((l) => selected.has(l.id));
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(list.map((l) => l.id)));
   };
 
   return (
@@ -1216,6 +1328,7 @@ const Leads = () => {
         <div className="page-actions">
           <button className="btn" onClick={load}><Icon name="bolt" size={12} />Refresh</button>
           {selected.size > 0 && <button className="btn primary" onClick={promoteSelected}><Icon name="check" size={12} />Promote {selected.size}</button>}
+          {selected.size > 0 && <button className="btn danger" onClick={deleteSelected}><Icon name="trash" size={12} />Delete {selected.size}</button>}
         </div>
       </div>
 
@@ -1224,25 +1337,29 @@ const Leads = () => {
         <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr 100px auto', gap: 10, alignItems: 'end' }}>
           <Field label="Source">
             <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
-              <option value="google_maps">Google Maps</option>
-              <option value="justdial">Justdial</option>
+              {(sources.length ? sources : [{ id: 'google_maps', label: 'Google Maps' }, { id: 'justdial', label: 'Justdial' }]).map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
             </select>
           </Field>
           <Field label="Query">
             <input value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} placeholder="e.g. pet shop, veterinary clinic, dog trainer" />
           </Field>
-          <Field label="City">
+          <Field label={needsCity ? 'City *' : 'City'}>
             <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="e.g. Hisar, Chandigarh" />
           </Field>
           <Field label="Max">
             <input type="number" min={5} max={100} value={form.max} onChange={(e) => setForm({ ...form, max: Number(e.target.value) })} />
           </Field>
-          <button className="btn primary" disabled={scraping || !form.query} onClick={scrape}>
+          <button className="btn primary" disabled={scraping || !form.query || (needsCity && !form.city)} onClick={scrape}>
             <Icon name="search" size={12} />{scraping ? 'Scraping…' : 'Run scrape'}
           </button>
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-          Heads-up: scraping is best-effort. Google may show a captcha after a few runs — wait a bit and retry. Justdial requires a city.
+          {activeSource && activeSource.note
+            ? activeSource.note
+            : 'Scraping is best-effort and runs on the server — no Claude needed.'}
+          {' '}Results land below as leads you can review and promote.
         </div>
       </div>
 
@@ -1262,13 +1379,13 @@ const Leads = () => {
         {list.length > 0 && (
           <table className="table">
             <thead><tr>
-              <th style={{ width: 36 }}></th>
+              <th style={{ width: 36 }}><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} /></th>
               <th>Name</th><th>Phone</th><th>City</th><th>Address</th><th>Source</th><th></th>
             </tr></thead>
             <tbody>
               {list.map((l) => (
                 <tr key={l.id} style={{ opacity: l.imported ? 0.5 : 1 }}>
-                  <td><input type="checkbox" disabled={!!l.imported} checked={selected.has(l.id)} onChange={() => toggleSelect(l.id)} /></td>
+                  <td><input type="checkbox" checked={selected.has(l.id)} onChange={() => toggleSelect(l.id)} /></td>
                   <td><strong style={{ fontSize: 13 }}>{l.name}</strong></td>
                   <td className="mono" style={{ fontSize: 12 }}>{l.phone ? '+' + l.phone : <span style={{ color: 'var(--muted)' }}>no phone</span>}</td>
                   <td style={{ fontSize: 12 }}>{l.city || '—'}</td>

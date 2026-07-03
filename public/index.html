@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=1280">
-  <title>Arju_CRM</title>
+  <title>WhatsApp CRM</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A1A1A'/%3E%3Ctext x='50%25' y='58%25' text-anchor='middle' font-family='Georgia,serif' font-size='40' font-weight='600' fill='%23F5F1EA'%3EA%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +16,7 @@
 <body>
   <div id="root">
     <div style="display:grid;place-items:center;height:100vh;font-family:'Inter Tight',sans-serif;color:#7A7670;background:#F5F1EA">
-      Loading Arju_CRM…
+      Loading WhatsApp CRM…
     </div>
   </div>
 
@@ -33,6 +33,45 @@
   <script type="text/babel" src="/modals.jsx?v=3"></script>
   <script type="text/babel" src="/ai-cmd.jsx"></script>
   <script type="text/babel" src="/users.jsx?v=9"></script>
+  <script type="text/babel" src="/properties.jsx"></script>
+  <script type="text/babel" src="/data-studio.jsx"></script>
+  <script type="text/babel" src="/modules-admin.jsx"></script>
   <script type="text/babel" src="/app.jsx"></script>
+
+  <!-- First-party analytics (in-app page/event tracking) -->
+  <script src="/analytics.js" defer></script>
+
+  <!-- Floating bug-report button -->
+  <button id="bug-btn" title="Report a bug" style="position:fixed;right:18px;bottom:18px;z-index:9998;background:#1A1A1A;color:#fff;border:0;border-radius:999px;padding:10px 16px;font:13px/1 'Inter Tight',system-ui,sans-serif;cursor:pointer;box-shadow:0 6px 24px rgba(0,0,0,.18)">🐞 Report a bug</button>
+  <div id="bug-modal" style="display:none;position:fixed;inset:0;background:rgba(20,18,14,.5);z-index:9999;align-items:center;justify-content:center;padding:20px">
+    <div style="background:#F5F1EA;border-radius:16px;padding:26px;width:420px;max-width:92vw;font:15px/1.5 'Inter Tight',system-ui,sans-serif;color:#1A1A1A">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <strong style="font-size:17px">Report a bug</strong>
+        <button id="bug-close" style="background:none;border:0;font-size:22px;cursor:pointer;color:#6b6b60;line-height:1">×</button>
+      </div>
+      <p style="color:#6b6b60;font-size:13px;margin:0 0 10px">Tell us what went wrong. We'll include the page you're on.</p>
+      <textarea id="bug-msg" rows="4" placeholder="What happened?" required style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d8d2c4;border-radius:9px;font:inherit;resize:vertical"></textarea>
+      <button id="bug-send" style="width:100%;margin-top:12px;background:#1A1A1A;color:#fff;border:0;border-radius:9px;padding:11px;font:inherit;cursor:pointer">Send report</button>
+      <div id="bug-out" style="margin-top:10px;font-size:14px"></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var modal = document.getElementById('bug-modal');
+      document.getElementById('bug-btn').onclick = function () { modal.style.display = 'flex'; };
+      document.getElementById('bug-close').onclick = function () { modal.style.display = 'none'; };
+      modal.addEventListener('click', function (e) { if (e.target === modal) modal.style.display = 'none'; });
+      document.getElementById('bug-send').onclick = async function () {
+        var out = document.getElementById('bug-out'), msg = document.getElementById('bug-msg').value;
+        if (!msg || msg.trim().length < 3) { out.textContent = 'Please describe the issue.'; out.style.color = '#a23b3b'; return; }
+        out.textContent = 'Sending…'; out.style.color = '#6b6b60';
+        try {
+          var r = await fetch('/api/support/bug', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg, url: location.href }) });
+          if (r.ok) { out.textContent = 'Thanks — report sent.'; out.style.color = '#3d6b3d'; document.getElementById('bug-msg').value = ''; if (window.track) window.track('bug_reported'); setTimeout(function () { modal.style.display = 'none'; }, 1200); }
+          else { out.textContent = 'Could not send. Try again.'; out.style.color = '#a23b3b'; }
+        } catch (_) { out.textContent = 'Network error.'; out.style.color = '#a23b3b'; }
+      };
+    })();
+  </script>
 </body>
 </html>

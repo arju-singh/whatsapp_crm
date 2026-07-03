@@ -1,5 +1,7 @@
 const express = require('express');
 const db = require('../db');
+const { body, S } = require('../validate');
+const { orgFilter } = require('../tenancy');
 
 const router = express.Router();
 
@@ -10,22 +12,28 @@ function normPhone(p) {
 router.get('/', (req, res) => {
   const rows = db.prepare(`
     SELECT id, phone, email, reason, source, created_at
-    FROM suppressions ORDER BY created_at DESC LIMIT 1000
-  `).all();
+    FROM suppressions WHERE ${orgFilter()} ORDER BY created_at DESC LIMIT 1000
+  `).all({ orgId: req.orgId });
   res.json(rows);
 });
 
-router.post('/', (req, res) => {
+router.post('/', body({
+  phone: S.string({ maxLength: 32 }),
+  email: S.string({ maxLength: 254 }),
+  reason: S.string({ maxLength: 200 }),
+  source: S.string({ maxLength: 60 }),
+}), (req, res) => {
   const { phone, email, reason, source } = req.body;
   if (!phone && !email) return res.status(400).json({ error: 'phone_or_email_required' });
   const r = db.prepare(`
-    INSERT INTO suppressions (phone, email, reason, source) VALUES (?, ?, ?, ?)
-  `).run(normPhone(phone) || null, (email || '').toLowerCase() || null, reason || 'manual', source || 'ui');
+    INSERT INTO suppressions (organization_id, phone, email, reason, source) VALUES (?, ?, ?, ?, ?)
+  `).run(req.orgId, normPhone(phone) || null, (email || '').toLowerCase() || null, reason || 'manual', source || 'ui');
   res.json({ id: r.lastInsertRowid });
 });
 
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM suppressions WHERE id = ?').run(req.params.id);
+  db.prepare(`UPDATE suppressions SET deleted_at = @now WHERE id = @id AND ${orgFilter()}`)
+    .run({ id: req.params.id, orgId: req.orgId, now: Date.now() });
   res.json({ ok: true });
 });
 
@@ -35,8 +43,8 @@ router.get('/check', (req, res) => {
   const e = (email || '').toLowerCase();
   const row = db.prepare(`
     SELECT id, phone, email, reason FROM suppressions
-    WHERE (? != '' AND phone = ?) OR (? != '' AND email = ?) LIMIT 1
-  `).get(p, p, e, e);
+    WHERE ((@p != '' AND phone = @p) OR (@e != '' AND email = @e)) AND ${orgFilter()} LIMIT 1
+  `).get({ p, e, orgId: req.orgId });
   res.json({ suppressed: !!row, match: row || null });
 });
 

@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../db');
-const { hashPassword, requireRole, ROLES } = require('../auth');
+const { hashPassword, ROLES } = require('../auth');
+const { requirePerm } = require('../permissions');
+const { body, S } = require('../validate');
 
 const router = express.Router();
 
@@ -10,7 +12,7 @@ function normalizePhone(p) {
   return d;
 }
 
-router.get('/', requireRole('admin'), (req, res) => {
+router.get('/', requirePerm('users.read'), (req, res) => {
   const rows = db.prepare(`
     SELECT id, name, phone, role, active, created_at, last_login_at
     FROM users ORDER BY created_at DESC
@@ -18,7 +20,12 @@ router.get('/', requireRole('admin'), (req, res) => {
   res.json({ rows });
 });
 
-router.post('/', requireRole('super_admin'), (req, res) => {
+router.post('/', requirePerm('users.manage'), body({
+  name: S.string({ required: true, maxLength: 200 }),
+  phone: S.string({ required: true, maxLength: 32 }),
+  password: S.string({ required: true, minLength: 6, maxLength: 200 }),
+  role: S.string({ maxLength: 60 }),
+}), (req, res) => {
   const { name, phone, password, role } = req.body || {};
   if (!name || !phone || !password) return res.status(400).json({ error: 'name_phone_password_required' });
   if (String(password).length < 6) return res.status(400).json({ error: 'password_too_short' });
@@ -34,7 +41,12 @@ router.post('/', requireRole('super_admin'), (req, res) => {
   }
 });
 
-router.put('/:id', requireRole('super_admin'), (req, res) => {
+router.put('/:id', requirePerm('users.manage'), body({
+  name: S.string({ maxLength: 200 }),
+  role: S.string({ maxLength: 60 }),
+  active: S.flag(),
+  password: S.string({ minLength: 6, maxLength: 200 }),
+}), (req, res) => {
   const id = Number(req.params.id);
   const { name, role, active, password } = req.body || {};
   const sets = [];
@@ -55,7 +67,7 @@ router.put('/:id', requireRole('super_admin'), (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', requireRole('super_admin'), (req, res) => {
+router.delete('/:id', requirePerm('users.manage'), (req, res) => {
   const id = Number(req.params.id);
   if (req.user && req.user.id === id) return res.status(400).json({ error: 'cannot_delete_self' });
   db.prepare(`DELETE FROM users WHERE id = ?`).run(id);

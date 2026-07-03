@@ -3,8 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Arju_CRM — Vol. 01, The WhatsApp CRM</title>
+  <title>WhatsApp CRM — Vol. 01, The WhatsApp CRM</title>
   <meta name="description" content="A quietly capable CRM for the people who actually live in WhatsApp. Bulk sends, follow-ups, pipeline. No Meta approval, no per-message fees.">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="/">
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="WhatsApp CRM">
+  <meta property="og:title" content="WhatsApp CRM — the quiet CRM for people who live in WhatsApp">
+  <meta property="og:description" content="Bulk sends, follow-ups, and pipeline — built on your own server. No Meta approval, no per-message fees.">
+  <meta property="og:image" content="/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="WhatsApp CRM — the quiet CRM for people who live in WhatsApp">
+  <meta name="twitter:description" content="Bulk sends, follow-ups, and pipeline — built on your own server.">
+  <meta name="twitter:image" content="/og-image.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A1A1A'/%3E%3Ctext x='50%25' y='58%25' text-anchor='middle' font-family='Georgia,serif' font-size='40' font-weight='600' fill='%23F5F1EA'%3EA%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -375,7 +390,7 @@
       </div>
       <div class="nav-row">
         <a href="/" class="brand-link">
-          <div class="nav-title">Arju_CRM<span class="dot">.</span></div>
+          <div class="nav-title">WhatsApp CRM<span class="dot">.</span></div>
         </a>
         <div class="nav-links">
           <a href="#chapter-one" class="nav-link desktop-only">Chapter I</a>
@@ -552,7 +567,7 @@
         <div>
           <h5>Colophon</h5>
           <p>
-            Arju_CRM is set in <em>Fraunces</em> and <em>Inter Tight</em>,
+            WhatsApp CRM is set in <em>Fraunces</em> and <em>Inter Tight</em>,
             built in Node and React, hosted on a quiet machine in Mumbai.
             Issue No. 01 published 2026.
           </p>
@@ -567,9 +582,21 @@
           <a href="/login">Sign in</a>
           <a href="/login#signup">Create an account</a>
         </div>
+        <div>
+          <h5>Legal</h5>
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+          <a href="/cookies">Cookie Policy</a>
+        </div>
+        <div>
+          <h5>Contact</h5>
+          <a href="mailto:connect@akshaykotish.com">connect@akshaykotish.com</a>
+          <a href="#" id="open-contact">Send us a message →</a>
+        </div>
       </div>
       <div class="colophon-bottom">
-        <span>© 2026 Arju_CRM · All rights reserved</span>
+        <span>© 2026 WhatsApp CRM · All rights reserved</span>
+        <span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/cookies">Cookies</a></span>
         <span>Made by hand · Arju Singh</span>
       </div>
     </div>
@@ -586,10 +613,72 @@
     document.querySelectorAll('a[href^="#"]').forEach((a) => {
       a.addEventListener('click', (e) => {
         const id = a.getAttribute('href').slice(1);
+        if (!id) return;
         const el = document.getElementById(id);
         if (el) { e.preventDefault(); el.scrollIntoView({ behavior: 'smooth' }); }
       });
     });
   </script>
+
+  <!-- Cookie consent banner -->
+  <div id="cookie-banner" style="display:none;position:fixed;left:16px;right:16px;bottom:16px;max-width:760px;margin:0 auto;background:#1A1A1A;color:#F5F1EA;border-radius:14px;padding:16px 20px;box-shadow:0 10px 40px rgba(0,0,0,.25);font:14px/1.5 'Inter Tight',system-ui,sans-serif;z-index:9999;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">
+    <span style="flex:1;min-width:240px">We use a necessary session cookie and first-party analytics to improve the product. See our <a href="/cookies" style="color:#E8B5A0">Cookie Policy</a>.</span>
+    <span style="display:flex;gap:8px">
+      <button id="cookie-decline" style="font:inherit;background:transparent;color:#F5F1EA;border:1px solid #555;border-radius:8px;padding:8px 14px;cursor:pointer">Decline</button>
+      <button id="cookie-accept" style="font:inherit;background:#F5F1EA;color:#1A1A1A;border:0;border-radius:8px;padding:8px 16px;cursor:pointer;font-weight:600">Accept</button>
+    </span>
+  </div>
+
+  <!-- Contact modal -->
+  <div id="contact-modal" style="display:none;position:fixed;inset:0;background:rgba(20,18,14,.5);z-index:10000;align-items:center;justify-content:center;padding:20px">
+    <div style="background:#F5F1EA;border-radius:16px;padding:28px;width:420px;max-width:92vw;font:15px/1.5 'Inter Tight',system-ui,sans-serif;color:#1A1A1A">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <strong style="font-size:18px">Get in touch</strong>
+        <button id="contact-close" style="background:none;border:0;font-size:22px;cursor:pointer;color:#6b6b60;line-height:1">×</button>
+      </div>
+      <form id="contact-form">
+        <input id="c-name" placeholder="Your name" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d8d2c4;border-radius:9px;font:inherit;margin-bottom:10px">
+        <input id="c-email" type="email" placeholder="Email (so we can reply)" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d8d2c4;border-radius:9px;font:inherit;margin-bottom:10px">
+        <textarea id="c-msg" placeholder="How can we help?" rows="4" required style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d8d2c4;border-radius:9px;font:inherit;resize:vertical"></textarea>
+        <button type="submit" style="width:100%;margin-top:12px;background:#1A1A1A;color:#fff;border:0;border-radius:9px;padding:12px;font:inherit;cursor:pointer">Send message</button>
+      </form>
+      <div id="contact-msg" style="margin-top:10px;font-size:14px"></div>
+    </div>
+  </div>
+
+  <script>
+    // --- Cookie consent ---
+    (function () {
+      var banner = document.getElementById('cookie-banner');
+      function choose(v) { try { localStorage.setItem('cookie_consent', v); } catch (e) {} document.cookie = 'cookie_consent=' + v + '; Path=/; Max-Age=31536000; SameSite=Lax'; banner.style.display = 'none'; }
+      var existing = null; try { existing = localStorage.getItem('cookie_consent'); } catch (e) {}
+      if (!existing) banner.style.display = 'flex';
+      document.getElementById('cookie-accept').onclick = function () { choose('accepted'); };
+      document.getElementById('cookie-decline').onclick = function () { choose('declined'); };
+    })();
+
+    // --- Contact modal ---
+    (function () {
+      var modal = document.getElementById('contact-modal');
+      function open(e) { if (e) e.preventDefault(); modal.style.display = 'flex'; }
+      function close() { modal.style.display = 'none'; }
+      var opener = document.getElementById('open-contact');
+      if (opener) opener.onclick = open;
+      document.getElementById('contact-close').onclick = close;
+      modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+      document.getElementById('contact-form').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var out = document.getElementById('contact-msg');
+        var body = { name: document.getElementById('c-name').value, email: document.getElementById('c-email').value, message: document.getElementById('c-msg').value, url: location.href };
+        out.textContent = 'Sending…'; out.style.color = '#6b6b60';
+        try {
+          var r = await fetch('/api/support/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          if (r.ok) { out.textContent = 'Thanks — we got your message.'; out.style.color = '#3d6b3d'; document.getElementById('contact-form').reset(); if (window.track) window.track('contact_submitted'); setTimeout(close, 1400); }
+          else { var d = await r.json().catch(function () { return {}; }); out.textContent = d.error === 'rate_limited' ? 'Too many messages — try again later.' : 'Could not send. Please email us directly.'; out.style.color = '#a23b3b'; }
+        } catch (_) { out.textContent = 'Network error. Please email us directly.'; out.style.color = '#a23b3b'; }
+      });
+    })();
+  </script>
+  <script src="/analytics.js" defer></script>
 </body>
 </html>

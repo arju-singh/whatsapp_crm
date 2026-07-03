@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reset password — WhatsApp CRM</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A1A1A'/%3E%3Ctext x='50%25' y='58%25' text-anchor='middle' font-family='Georgia,serif' font-size='40' font-weight='600' fill='%23F5F1EA'%3EA%3C/text%3E%3C/svg%3E">
+  <style>
+    body{font:16px/1.6 -apple-system,system-ui,Segoe UI,Roboto,Arial,sans-serif;color:#1A1A1A;background:#F2EDE3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+    .card{background:#fff;border:1px solid #ddd5c5;border-radius:16px;padding:32px;width:360px;max-width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.06)}
+    h1{font-size:22px;margin:0 0 6px;font-weight:600}
+    p{color:#6b6b60;font-size:14px;margin:0 0 20px}
+    label{display:block;font-size:13px;margin:14px 0 6px;font-weight:500}
+    input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d8d2c4;border-radius:9px;font:inherit}
+    button{width:100%;margin-top:20px;background:#1A1A1A;color:#fff;border:0;border-radius:9px;padding:12px;font:inherit;cursor:pointer}
+    button:disabled{opacity:.5;cursor:default}
+    .msg{margin-top:14px;font-size:14px}
+    .ok{color:#3d6b3d}.err{color:#a23b3b}
+    a{color:#1A1A1A;font-size:14px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Choose a new password</h1>
+    <p>Enter a new password for your account.</p>
+    <form id="f">
+      <label for="pw">New password</label>
+      <input id="pw" type="password" minlength="6" autocomplete="new-password" required>
+      <label for="pw2">Confirm password</label>
+      <input id="pw2" type="password" minlength="6" autocomplete="new-password" required>
+      <button id="btn" type="submit">Reset password</button>
+    </form>
+    <div class="msg" id="msg"></div>
+    <p style="margin-top:18px"><a href="/login">← Back to sign in</a></p>
+  </div>
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const msg = document.getElementById('msg');
+    if (!token) { msg.className='msg err'; msg.textContent='Missing or invalid reset link.'; document.getElementById('btn').disabled=true; }
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = document.getElementById('pw').value, pw2 = document.getElementById('pw2').value;
+      if (pw !== pw2) { msg.className='msg err'; msg.textContent='Passwords do not match.'; return; }
+      const btn = document.getElementById('btn'); btn.disabled = true;
+      try {
+        const r = await fetch('/api/auth/reset', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token, password: pw }) });
+        const d = await r.json();
+        if (r.ok) { msg.className='msg ok'; msg.textContent='Password updated. Redirecting to sign in…'; setTimeout(()=>location.href='/login', 1500); }
+        else { msg.className='msg err'; msg.textContent = d.error === 'invalid_or_expired_token' ? 'This reset link is invalid or expired.' : (d.error || 'Something went wrong.'); btn.disabled=false; }
+      } catch (_) { msg.className='msg err'; msg.textContent='Network error. Try again.'; btn.disabled=false; }
+    });
+  </script>
+</body>
+</html>

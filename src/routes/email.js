@@ -2,46 +2,69 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
 const email = require('../email');
+const transports = require('../transports');
 const suppressions = require('./suppressions');
 const settings = require('../settings');
+const { body, S } = require('../validate');
+const { orgFilter } = require('../tenancy');
 
 const router = express.Router();
 
 // ----- Templates -----
 router.get('/templates', (req, res) => {
-  const rows = db.prepare(`SELECT * FROM email_templates ORDER BY id DESC`).all();
+  const rows = db.prepare(`SELECT * FROM email_templates WHERE ${orgFilter()} ORDER BY id DESC`).all({ orgId: req.orgId });
   res.json(rows);
 });
 
-router.post('/templates', (req, res) => {
+router.post('/templates', body({
+  name: S.string({ maxLength: 200 }),
+  subject: S.string({ maxLength: 300 }),
+  body_html: S.text({ maxLength: 10000 }),
+  body_text: S.text({ maxLength: 10000 }),
+  category: S.string({ maxLength: 200 }),
+}), (req, res) => {
   const { name, subject, body_html, body_text, category } = req.body;
   if (!name || !subject || !body_html) return res.status(400).json({ error: 'name, subject, body_html required' });
   const r = db.prepare(`
-    INSERT INTO email_templates (name, subject, body_html, body_text, category) VALUES (?, ?, ?, ?, ?)
-  `).run(name, subject, body_html, body_text || null, category || null);
+    INSERT INTO email_templates (organization_id, name, subject, body_html, body_text, category) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(req.orgId, name, subject, body_html, body_text || null, category || null);
   res.json({ id: r.lastInsertRowid });
 });
 
-router.put('/templates/:id', (req, res) => {
+router.put('/templates/:id', body({
+  name: S.string({ maxLength: 200 }),
+  subject: S.string({ maxLength: 300 }),
+  body_html: S.text({ maxLength: 10000 }),
+  body_text: S.text({ maxLength: 10000 }),
+  category: S.string({ maxLength: 200 }),
+}), (req, res) => {
   const { name, subject, body_html, body_text, category } = req.body;
   db.prepare(`
-    UPDATE email_templates SET name=?, subject=?, body_html=?, body_text=?, category=? WHERE id=?
-  `).run(name, subject, body_html, body_text || null, category || null, req.params.id);
+    UPDATE email_templates SET name=@name, subject=@subject, body_html=@body_html, body_text=@body_text, category=@category WHERE id=@id AND ${orgFilter()}
+  `).run({ name, subject, body_html, body_text: body_text || null, category: category || null, id: req.params.id, orgId: req.orgId });
   res.json({ ok: true });
 });
 
 router.delete('/templates/:id', (req, res) => {
-  db.prepare('DELETE FROM email_templates WHERE id = ?').run(req.params.id);
+  db.prepare(`UPDATE email_templates SET deleted_at = @now WHERE id = @id AND ${orgFilter()}`)
+    .run({ id: req.params.id, orgId: req.orgId, now: Date.now() });
   res.json({ ok: true });
 });
 
 // ----- Send -----
-router.post('/send', (req, res) => {
+router.post('/send', body({
+  vendor_id: S.int({ min: 1 }),
+  to_email: S.email({ maxLength: 254 }),
+  template_id: S.int({ min: 1 }),
+  subject: S.string({ maxLength: 300 }),
+  body_html: S.text({ maxLength: 10000 }),
+  body_text: S.text({ maxLength: 10000 }),
+}), (req, res) => {
   const { vendor_id, to_email, template_id, subject, body_html, body_text } = req.body;
   let toAddr = to_email;
   let v = null;
   if (vendor_id) {
-    v = db.prepare('SELECT id, name, email FROM vendors WHERE id = ?').get(vendor_id);
+    v = db.prepare(`SELECT id, name, email FROM vendors WHERE id = @id AND ${orgFilter()}`).get({ id: vendor_id, orgId: req.orgId });
     if (!v) return res.status(404).json({ error: 'vendor_not_found' });
     toAddr = toAddr || v.email;
   }
@@ -52,7 +75,7 @@ router.post('/send', (req, res) => {
 
   let subj = subject, html = body_html, text = body_text, tid = template_id || null;
   if (template_id) {
-    const t = db.prepare('SELECT * FROM email_templates WHERE id = ?').get(template_id);
+    const t = db.prepare(`SELECT * FROM email_templates WHERE id = @id AND ${orgFilter()}`).get({ id: template_id, orgId: req.orgId });
     if (!t) return res.status(404).json({ error: 'template_not_found' });
     subj = subj || t.subject;
     html = html || t.body_html;
@@ -61,21 +84,28 @@ router.post('/send', (req, res) => {
   if (!subj || !html) return res.status(400).json({ error: 'subject_and_body_html_required' });
 
   const r = db.prepare(`
-    INSERT INTO emails (vendor_id, template_id, direction, to_email, subject, body_html, body_text, status)
-    VALUES (?, ?, 'out', ?, ?, ?, ?, 'queued')
-  `).run(vendor_id || null, tid, toAddr, subj, html, text || null);
-  email.enqueue(r.lastInsertRowid);
+    INSERT INTO emails (organization_id, vendor_id, template_id, direction, to_email, subject, body_html, body_text, status)
+    VALUES (?, ?, ?, 'out', ?, ?, ?, ?, 'queued')
+  `).run(req.orgId, vendor_id || null, tid, toAddr, subj, html, text || null);
+  transports.sendMessage('email', r.lastInsertRowid);
   res.json({ id: r.lastInsertRowid, queued: true });
 });
 
-router.post('/bulk', (req, res) => {
+router.post('/bulk', body({
+  vendor_ids: S.array({ of: S.int({ min: 1 }), maxItems: 10000 }),
+  template_id: S.int({ min: 1 }),
+  subject: S.string({ maxLength: 300 }),
+  body_html: S.text({ maxLength: 10000 }),
+  body_text: S.text({ maxLength: 10000 }),
+  campaign_name: S.string({ maxLength: 200 }),
+}), (req, res) => {
   const { vendor_ids, template_id, subject, body_html, body_text, campaign_name } = req.body;
   if (!Array.isArray(vendor_ids) || !vendor_ids.length) {
     return res.status(400).json({ error: 'vendor_ids[] required' });
   }
   let subj = subject, html = body_html, text = body_text, tid = template_id || null;
   if (template_id) {
-    const t = db.prepare('SELECT * FROM email_templates WHERE id = ?').get(template_id);
+    const t = db.prepare(`SELECT * FROM email_templates WHERE id = @id AND ${orgFilter()}`).get({ id: template_id, orgId: req.orgId });
     if (!t) return res.status(404).json({ error: 'template_not_found' });
     subj = subj || t.subject;
     html = html || t.body_html;
@@ -84,23 +114,23 @@ router.post('/bulk', (req, res) => {
   if (!subj || !html) return res.status(400).json({ error: 'subject_and_body_html_required' });
 
   const camp = db.prepare(`
-    INSERT INTO campaigns (name, template_id, status, total_targets, started_at, channel)
-    VALUES (?, ?, 'running', ?, ?, 'email')
-  `).run(campaign_name || `Email ${new Date().toISOString()}`, tid, vendor_ids.length, Date.now());
+    INSERT INTO campaigns (organization_id, name, template_id, status, total_targets, started_at, channel)
+    VALUES (?, ?, ?, 'running', ?, ?, 'email')
+  `).run(req.orgId, campaign_name || `Email ${new Date().toISOString()}`, tid, vendor_ids.length, Date.now());
   const campaignId = camp.lastInsertRowid;
 
   const insert = db.prepare(`
-    INSERT INTO emails (vendor_id, campaign_id, template_id, direction, to_email, subject, body_html, body_text, status)
-    VALUES (?, ?, ?, 'out', ?, ?, ?, ?, 'queued')
+    INSERT INTO emails (organization_id, vendor_id, campaign_id, template_id, direction, to_email, subject, body_html, body_text, status)
+    VALUES (?, ?, ?, ?, 'out', ?, ?, ?, ?, 'queued')
   `);
   let queued = 0, skippedNoEmail = 0, skippedSuppressed = 0;
   const tx = db.transaction((ids) => {
     for (const vid of ids) {
-      const v = db.prepare('SELECT id, email FROM vendors WHERE id = ?').get(vid);
+      const v = db.prepare(`SELECT id, email FROM vendors WHERE id = @id AND ${orgFilter()}`).get({ id: vid, orgId: req.orgId });
       if (!v || !v.email) { skippedNoEmail++; continue; }
       if (suppressions.isSuppressed({ email: v.email })) { skippedSuppressed++; continue; }
-      const r = insert.run(v.id, campaignId, tid, v.email, subj, html, text || null);
-      email.enqueue(r.lastInsertRowid);
+      const r = insert.run(req.orgId, v.id, campaignId, tid, v.email, subj, html, text || null);
+      transports.sendMessage('email', r.lastInsertRowid);
       queued++;
     }
   });
@@ -111,11 +141,11 @@ router.post('/bulk', (req, res) => {
 // ----- List/inspect -----
 router.get('/', (req, res) => {
   const { vendor_id, status, limit = 200 } = req.query;
-  const filters = [];
-  const params = {};
+  const filters = [orgFilter('e')];
+  const params = { orgId: req.orgId };
   if (vendor_id) { filters.push('e.vendor_id = @vendor_id'); params.vendor_id = vendor_id; }
   if (status) { filters.push('e.status = @status'); params.status = status; }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT e.*, v.name AS vendor_name FROM emails e
     LEFT JOIN vendors v ON v.id = e.vendor_id

@@ -1,13 +1,16 @@
 const express = require('express');
 const db = require('../db');
+const { orgFilter } = require('../tenancy');
 
 const router = express.Router();
 
 // Unified activity feed: messages + calls + tasks for a vendor (or globally)
 router.get('/', (req, res) => {
   const { vendor_id, limit = 100 } = req.query;
-  const where = vendor_id ? 'WHERE vendor_id = @vendor_id' : '';
-  const params = { vendor_id, limit: Number(limit) };
+  const filters = [orgFilter()];
+  const params = { orgId: req.orgId, limit: Number(limit) };
+  if (vendor_id) { filters.push('vendor_id = @vendor_id'); params.vendor_id = vendor_id; }
+  const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT * FROM (
       SELECT 'message' AS kind, id, vendor_id, direction AS sub, status, body AS detail, created_at FROM messages ${where}
