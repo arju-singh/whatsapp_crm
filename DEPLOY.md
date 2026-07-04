@@ -6,6 +6,31 @@ database and the WhatsApp linked-device session, so deploy it on a host that
 supports a persistent volume (a VPS, or a container platform with volumes —
 **not** ephemeral serverless).
 
+## Go live on a custom domain with HTTPS (e.g. crm.arjusingh.com)
+
+Uses `docker-compose.prod.yml`, which adds a Caddy reverse proxy that fetches and
+renews a Let's Encrypt certificate automatically. You need a host with a public
+IP (any small VPS: DigitalOcean, Hetzner, Linode, EC2…) and control of the
+domain's DNS.
+
+1. **DNS** — at your DNS provider, add an **A record**:
+   `crm.arjusingh.com  →  <your server's public IP>`  (proxy/CDN off — "DNS only").
+2. **On the server** (Docker installed, ports 80 + 443 open):
+   ```bash
+   git clone https://github.com/arju-singh/whatsapp_crm.git && cd whatsapp_crm
+   cp .env.example .env
+   # edit .env: set DOMAIN=crm.arjusingh.com, SEED_ADMIN_*, and any API keys
+   echo "DOMAIN=crm.arjusingh.com" >> .env
+   docker compose -f docker-compose.prod.yml up -d --build
+   ```
+3. Wait ~30s for Caddy to obtain the cert, then open **https://crm.arjusingh.com**.
+4. Link WhatsApp: `docker compose -f docker-compose.prod.yml logs -f crm` and scan
+   the QR that prints on first run.
+
+Certs, the SQLite DB, and the WhatsApp session all persist in named volumes, so
+`git pull && docker compose -f docker-compose.prod.yml up -d --build` upgrades in
+place without re-linking WhatsApp or re-issuing the cert.
+
 ## Option A — Docker (recommended, portable)
 
 On any Docker host (your laptop, a VPS, etc.):

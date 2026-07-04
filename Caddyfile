@@ -1,0 +1,7 @@
+# Caddy auto-provisions and renews a Let's Encrypt TLS certificate for the
+# domain, then reverse-proxies HTTPS traffic to the CRM container on :8080.
+# Requires: ports 80 + 443 open, and the domain's DNS A record pointing at this
+# host (Caddy needs both to complete the ACME challenge).
+{$DOMAIN} {
+	reverse_proxy crm:8080
+}

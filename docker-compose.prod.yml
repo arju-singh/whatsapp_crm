@@ -1,0 +1,50 @@
+# Production deploy WITH a custom domain + automatic HTTPS.
+#
+#   1. Point DNS: an A record for your domain → this host's public IP.
+#   2. In .env set:  DOMAIN=crm.arjusingh.com   (plus SEED_ADMIN_*, API keys)
+#   3. docker compose -f docker-compose.prod.yml up -d --build
+#
+# Caddy fetches a Let's Encrypt cert for $DOMAIN automatically and proxies to
+# the CRM. The CRM itself is not exposed to the internet directly — only Caddy.
+services:
+  crm:
+    build: .
+    image: whatsapp-crm
+    container_name: whatsapp-crm
+    restart: unless-stopped
+    expose:
+      - "8080"                       # internal only; Caddy reaches it over the compose network
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      PUBLIC_BASE_URL: "https://${DOMAIN}"   # correct email-tracking + OAuth callback URLs
+      TRUST_PROXY: "1"                        # behind Caddy
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - crm-data:/app/data
+      - crm-wa:/app/.wwebjs_auth
+    shm_size: "1gb"
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data              # persists the TLS cert across restarts
+      - caddy-config:/config
+    depends_on:
+      - crm
+
+volumes:
+  crm-data:
+  crm-wa:
+  caddy-data:
+  caddy-config:
