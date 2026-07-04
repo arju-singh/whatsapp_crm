@@ -1,0 +1,27 @@
+# One-command deploy: `docker compose up -d --build`
+# Works on any Docker host — a VPS, or as the base for Fly/Render/Railway.
+services:
+  crm:
+    build: .
+    image: whatsapp-crm
+    container_name: whatsapp-crm
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+    # Optional .env for API keys / SMTP / seed admin — see .env.example.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - crm-data:/app/data            # SQLite database
+      - crm-wa:/app/.wwebjs_auth       # WhatsApp linked-device session
+    # Chromium needs shared memory; pair with the --disable-dev-shm-usage arg
+    # the app already passes to puppeteer.
+    shm_size: "1gb"
+
+volumes:
+  crm-data:
+  crm-wa:

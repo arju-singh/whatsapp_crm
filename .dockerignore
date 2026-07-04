@@ -1,0 +1,20 @@
+# Keep the build context small and never bake local state / secrets into the image.
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.wwebjs_auth
+.wwebjs_cache
+*.nosync
+data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+Three.zip
+Dockerfile
+docker-compose.yml
+.dockerignore
