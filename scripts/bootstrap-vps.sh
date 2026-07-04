@@ -30,7 +30,12 @@ cd "$APP_DIR"
 #    SEED_ADMIN_PASSWORD and any API keys, then re-run this script.
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "==> Created .env from .env.example — EDIT IT to set SEED_ADMIN_PASSWORD + keys, then re-run."
+  grep -q '^DOMAIN=' .env || echo "DOMAIN=$DOMAIN" >> .env
+  echo
+  echo "==> Created .env. Set your admin login + any keys BEFORE first boot:"
+  echo "      nano $APP_DIR/.env    # set SEED_ADMIN_PHONE, SEED_ADMIN_NAME, SEED_ADMIN_PASSWORD"
+  echo "    Then re-run this script to deploy."
+  exit 0
 fi
 grep -q '^DOMAIN=' .env || echo "DOMAIN=$DOMAIN" >> .env
 
