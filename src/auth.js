@@ -88,7 +88,14 @@ function makeAuthMiddleware(db) {
     // WhatsApp bridge inbound webhook (WA_WEBHOOK_SECRET / loopback verified inside the route)
     '/api/wa/webhook',
   ]);
-  const PUBLIC_PREFIXES = ['/avatars/', '/styles', '/fonts'];
+  const PUBLIC_PREFIXES = [
+    '/avatars/', '/styles', '/fonts',
+    // Email open-tracking pixel (embedded in outbound mail, loaded by recipients
+    // with no session) and provider delivery/bounce webhooks (each verifies its
+    // own signature inside the route). Same public-but-self-authenticated model
+    // as the Stripe/Twilio/WhatsApp webhooks above.
+    '/api/email/track/', '/api/email/webhook/',
+  ];
 
   return function authMiddleware(req, res, next) {
     if (PUBLIC_PATHS.has(req.path)) return next();

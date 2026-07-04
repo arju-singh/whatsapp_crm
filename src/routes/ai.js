@@ -52,10 +52,12 @@ router.put('/drafts/:id', body({ body: S.text({ maxLength: 10000 }) }), (req, re
 
 router.get('/health', (req, res) => {
   const settings = require('../settings');
-  const key = settings.get('anthropic_api_key') || process.env.ANTHROPIC_API_KEY || '';
+  const agent = require('../ai-agent');
+  const model = agent.getModel();
   res.json({
-    api_key_set: !!key,
-    model: settings.get('ai_model') || 'claude-sonnet-4-6',
+    api_key_set: agent.aiConfigured(), // true when the configured provider (Anthropic or Gemini) has a key
+    provider: agent.providerFor(model),
+    model,
     auto_draft_inbound: settings.get('ai_auto_draft_inbound') === '1',
   });
 });

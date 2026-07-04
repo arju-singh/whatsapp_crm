@@ -639,14 +639,14 @@ const Settings = () => {
   if (!data) return <div style={{ padding: 40, color: 'var(--muted)' }}>Loading settings…</div>;
 
   const sections = [
-    { t: 'AI agent', keys: ['anthropic_api_key', 'ai_model', 'ai_auto_draft_inbound', 'ai_business_profile'] },
+    { t: 'AI agent', keys: ['anthropic_api_key', 'gemini_api_key', 'ai_model', 'ai_auto_draft_inbound', 'ai_business_profile'] },
     { t: 'Lead-finder APIs (free tiers)', keys: ['foursquare_api_key', 'here_api_key', 'tomtom_api_key'] },
     { t: 'WhatsApp pacing', keys: ['wa_min_delay_ms', 'wa_max_delay_ms', 'wa_daily_cap', 'wa_max_attempts'] },
     { t: 'Email pacing', keys: ['email_daily_cap', 'email_max_attempts'] },
     { t: 'Quiet hours & region', keys: ['quiet_start', 'quiet_end', 'default_country_code', 'default_region'] },
     { t: 'Webhooks & secrets', keys: ['resend_webhook_secret', 'mailgun_signing_key', 'webhook_signature_required', 'test_number'] },
   ];
-  const SECRET = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'anthropic_api_key', 'foursquare_api_key', 'here_api_key', 'tomtom_api_key']);
+  const SECRET = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'anthropic_api_key', 'gemini_api_key', 'foursquare_api_key', 'here_api_key', 'tomtom_api_key']);
   const LONG = new Set(['ai_business_profile']);
 
   return (

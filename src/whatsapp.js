@@ -31,6 +31,48 @@ const WA_WEB_VERSION = process.env.WA_WEB_VERSION || '2.3000.1039904970-alpha';
 const WA_WEB_VERSION_HTML = process.env.WA_WEB_VERSION_HTML
   || `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`;
 
+// Resolve a Chrome/Chromium the bundled puppeteer can drive. whatsapp-web.js's
+// puppeteer expects a pinned Chrome build that is often not downloaded (npm ci
+// with PUPPETEER_SKIP_DOWNLOAD, a wiped cache, CI images, etc.), which surfaces
+// as "Could not find Chrome (ver. X)" and leaves WhatsApp permanently offline.
+// Prefer an explicit override, then a system-installed browser, then puppeteer's
+// own download. Returns undefined to let puppeteer fall back to its default.
+function resolveChromeExecutable() {
+  const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (envPath && fs.existsSync(envPath)) return envPath;
+  const byPlatform = {
+    darwin: [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ],
+    win32: [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    ],
+    linux: [
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/snap/bin/chromium',
+    ],
+  };
+  for (const c of byPlatform[process.platform] || []) {
+    try { if (fs.existsSync(c)) return c; } catch (_) {}
+  }
+  // Last resort: puppeteer's own downloaded build, only if it actually exists.
+  try {
+    const ep = require('puppeteer').executablePath();
+    if (ep && fs.existsSync(ep)) return ep;
+  } catch (_) {}
+  return undefined;
+}
+
+const CHROME_EXECUTABLE = resolveChromeExecutable();
+if (CHROME_EXECUTABLE) console.log(`[wa] using Chrome at ${CHROME_EXECUTABLE}`);
+else console.warn('[wa] no Chrome found — set PUPPETEER_EXECUTABLE_PATH or run `npx puppeteer browsers install chrome`');
+
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'whatsapp-crm' }),
   ...(WA_WEB_VERSION ? {
@@ -39,6 +81,7 @@ const client = new Client({
   } : {}),
   puppeteer: {
     headless: true,
+    ...(CHROME_EXECUTABLE ? { executablePath: CHROME_EXECUTABLE } : {}),
     protocolTimeout: 180_000,
     timeout: 180_000,
     args: [

@@ -7,6 +7,14 @@ const settings = require('../src/settings');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+// Stand in for the real auth + tenant middleware (server.js mounts these before
+// the routers). The settings export/import routes are gated by
+// requirePerm('settings.manage'); without an authenticated user they 401.
+app.use((req, _res, next) => {
+  req.user = { id: 1, name: 'smoke', role: 'super_admin' };
+  req.orgRole = 'super_admin';
+  next();
+});
 app.use('/api/settings', require('../src/routes/settings'));
 
 const server = app.listen(0, async () => {
