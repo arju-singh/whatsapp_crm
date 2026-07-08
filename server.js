@@ -290,6 +290,7 @@ app.use('/api/messages', require('./src/routes/messages'));
 app.use('/api/campaigns', require('./src/routes/campaigns'));
 app.use('/api/followups', require('./src/routes/followups'));
 app.use('/api/calls', require('./src/routes/calls'));
+app.use('/api/voice', require('./src/routes/voice'));
 app.use('/api/tasks', require('./src/routes/tasks'));
 app.use('/api/activities', require('./src/routes/activities'));
 app.use('/api/suppressions', require('./src/routes/suppressions'));

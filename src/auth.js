@@ -85,6 +85,8 @@ function makeAuthMiddleware(db) {
     '/api/billing/webhook',
     // Twilio call-status webhook (X-Twilio-Signature verified inside the route)
     '/api/calls/twilio/status',
+    // Voice AI provider webhook (Vapi/Retell) — shared secret verified in-route
+    '/api/voice/webhook',
     // WhatsApp bridge inbound webhook (WA_WEBHOOK_SECRET / loopback verified inside the route)
     '/api/wa/webhook',
   ]);

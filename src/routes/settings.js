@@ -9,7 +9,8 @@ const EXPORT_VERSION = 1;
 // Sensitive values that must never be sent to the client. Includes the
 // Anthropic API key and inbound-webhook signing secrets (OWASP A02 — sensitive
 // data exposure / hard-coded-secret leakage).
-const SECRET_KEYS = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'anthropic_api_key', 'gemini_api_key', 'foursquare_api_key', 'here_api_key', 'tomtom_api_key']);
+const SECRET_KEYS = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'anthropic_api_key', 'gemini_api_key', 'foursquare_api_key', 'here_api_key', 'tomtom_api_key',
+  'voice_webhook_secret', 'voice_vapi_key', 'voice_retell_key']);
 
 // Return settings for the UI with every secret redacted. The UI gets a
 // `secrets_set` map so it can show "configured / not configured" without ever

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice AI Agent — Console</title>
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --panel2:#1e242d; --line:#2a323d; --tx:#e6e9ef; --mut:#8b95a3; --acc:#6aa9ff; --pos:#4ade80; --neg:#f87171; --neu:#fbbf24; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  a { color:var(--acc); text-decoration:none; }
+  header { padding:16px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; font-weight:600; }
+  header .sp { flex:1; }
+  .badge { font-size:12px; padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--mut); }
+  .badge.on { color:var(--pos); border-color:#215e3a; background:#0f2318; }
+  .badge.dry { color:var(--neu); border-color:#5b4a1e; background:#241d0c; }
+  main { padding:22px; max-width:1180px; margin:0 auto; }
+  section { margin-bottom:26px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0 0 12px; font-weight:600; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .kpi .n { font-size:26px; font-weight:700; }
+  .kpi .l { color:var(--mut); font-size:12px; margin-top:2px; }
+  .kpi .sub { font-size:11px; color:var(--mut); margin-top:6px; }
+  .row { display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .grow { flex:1; min-width:300px; }
+  input, select, textarea, button { font:inherit; color:var(--tx); background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  textarea { width:100%; min-height:64px; resize:vertical; }
+  button { background:var(--acc); color:#06101f; border:none; font-weight:600; cursor:pointer; }
+  button.ghost { background:var(--panel2); color:var(--tx); border:1px solid var(--line); font-weight:500; }
+  button:disabled { opacity:.5; cursor:default; }
+  label { display:block; font-size:12px; color:var(--mut); margin:8px 0 4px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:top; }
+  th { color:var(--mut); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  tr.clk:hover { background:var(--panel2); cursor:pointer; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
+  .s-positive { color:var(--pos); border-color:#215e3a; } .s-negative { color:var(--neg); border-color:#5b2626; } .s-neutral { color:var(--neu); border-color:#5b4a1e; }
+  .muted { color:var(--mut); }
+  .bars { display:flex; height:8px; border-radius:5px; overflow:hidden; margin-top:8px; background:var(--panel2); }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; padding:20px; z-index:50; }
+  .modal { background:var(--panel); border:1px solid var(--line); border-radius:14px; width:min(720px,100%); max-height:86vh; overflow:auto; padding:20px; }
+  .turn { padding:8px 12px; border-radius:10px; margin:6px 0; max-width:82%; }
+  .turn.user { background:var(--panel2); margin-left:auto; }
+  .turn.assistant, .turn.bot { background:#16233b; }
+  .turn.tool { background:#241d0c; font-family:ui-monospace,monospace; font-size:12px; }
+  .turn .who { font-size:10px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; }
+  .note { font-size:12px; color:var(--mut); background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .err { color:var(--neg); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎙️ Voice AI Agent</h1>
+  <span id="provBadge" class="badge">…</span>
+  <span id="cfgBadge" class="badge">…</span>
+  <div class="sp"></div>
+  <select id="days" class="ghost" onchange="loadAll()">
+    <option value="7">Last 7 days</option>
+    <option value="30" selected>Last 30 days</option>
+    <option value="90">Last 90 days</option>
+    <option value="365">Last year</option>
+  </select>
+  <a href="/" class="badge">← CRM</a>
+</header>
+
+<main>
+  <div id="banner"></div>
+
+  <section>
+    <h2>Performance</h2>
+    <div class="kpis" id="kpis"></div>
+    <div class="row" style="margin-top:12px">
+      <div class="card grow"><h2>Sentiment</h2><div id="sentiment" class="muted">—</div><div class="bars" id="sentBars"></div></div>
+      <div class="card grow"><h2>Languages</h2><div id="langs" class="muted">—</div></div>
+      <div class="card grow"><h2>End reasons</h2><div id="reasons" class="muted">—</div></div>
+    </div>
+  </section>
+
+  <section class="row">
+    <div class="card grow" style="max-width:360px">
+      <h2>Place an AI call</h2>
+      <label>Contact ID (vendor_id)</label>
+      <input id="dialVendor" type="number" placeholder="e.g. 42" style="width:100%" />
+      <label>Focus product (optional)</label>
+      <input id="dialProduct" type="text" placeholder="e.g. ZetsGeo" style="width:100%" />
+      <div style="margin-top:12px; display:flex; gap:8px">
+        <button onclick="dial()" id="dialBtn">Call now</button>
+        <button class="ghost" onclick="document.getElementById('dialVendor').value='';document.getElementById('dialProduct').value=''">Clear</button>
+      </div>
+      <div id="dialOut" style="margin-top:10px; font-size:13px"></div>
+    </div>
+    <div class="card grow">
+      <h2>Recent AI calls</h2>
+      <div style="overflow:auto"><table id="callsTbl"><thead><tr>
+        <th>When</th><th>Contact</th><th>Status</th><th>Sentiment</th><th>Score</th><th>Lang</th><th>Meeting</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px"><h2 style="margin:0">Knowledge base <span class="muted" id="kbCount"></span></h2><div class="sp" style="flex:1"></div><button class="ghost" onclick="toggleKbForm()">+ Add fact</button></div>
+      <div id="kbForm" style="display:none;margin-top:12px">
+        <div class="row">
+          <div style="flex:1;min-width:200px"><label>Title</label><input id="kbTitle" style="width:100%" placeholder="ZetsGeo pricing" /></div>
+          <div style="width:180px"><label>Product</label><input id="kbProduct" style="width:100%" placeholder="ZetsGeo" /></div>
+          <div style="width:180px"><label>Tags</label><input id="kbTags" style="width:100%" placeholder="pricing, plans" /></div>
+        </div>
+        <label>Fact (the agent answers verbatim from this)</label>
+        <textarea id="kbContent" placeholder="ZetsGeo starts at ₹4,999/month for rental verification, billed annually."></textarea>
+        <div style="margin-top:8px"><button onclick="addKb()">Save fact</button> <span id="kbErr" class="err"></span></div>
+      </div>
+      <div style="overflow:auto;margin-top:12px"><table id="kbTbl"><thead><tr><th>Title</th><th>Product</th><th>Fact</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</main>
+
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({ headers: { 'Content-Type':'application/json' } }, opts));
+  if (r.status === 401) { location.href = '/login'; throw new Error('unauthorized'); }
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+function fmtDur(s){ if(!s) return '—'; const m=Math.floor(s/60), r=s%60; return m?`${m}m ${r}s`:`${r}s`; }
+function fmtWhen(ms){ if(!ms) return '—'; const d=new Date(Number(ms)); return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function sPill(s){ return s?`<span class="pill s-${esc(s)}">${esc(s)}</span>`:'<span class="muted">—</span>'; }
+
+async function loadConfig(){
+  try {
+    const [cfg, prov] = await Promise.all([api('/api/voice/config'), api('/api/voice/providers')]);
+    $('provBadge').textContent = 'Provider: ' + cfg.provider;
+    $('provBadge').className = 'badge ' + (cfg.provider==='log'?'dry':'on');
+    const ok = cfg.configured && cfg.server_url_set;
+    $('cfgBadge').textContent = ok ? 'Live-ready' : (cfg.provider==='log'?'Dry-run':'Not configured');
+    $('cfgBadge').className = 'badge ' + (ok?'on':'dry');
+    const notes = [];
+    if (cfg.provider==='log') notes.push('Provider is <b>dry-run (log)</b> — calls are recorded but no audio is placed. Set <code>voice_provider=vapi</code> and add credentials in Settings to go live.');
+    else if (!cfg.configured) notes.push(`Provider <b>${esc(cfg.provider)}</b> selected but missing credentials.`);
+    if (!cfg.server_url_set) notes.push('<code>PUBLIC_BASE_URL</code> is not set — the provider cannot reach the tool/end-of-call webhook, so mid-call tools and transcripts will not work.');
+    $('banner').innerHTML = notes.length ? `<div class="note">⚠️ ${notes.join('<br>')}</div>` : '';
+  } catch(e){ $('banner').innerHTML = `<div class="note err">Config error: ${esc(e.message)}</div>`; }
+}
+
+async function loadStats(){
+  const days = $('days').value;
+  const s = await api('/api/voice/stats/summary?days='+days);
+  const t = s.totals;
+  const answerRate = t.total ? Math.round(100*t.answered/t.total) : 0;
+  const kpi = [
+    ['Total calls', t.total||0, ''],
+    ['Answered', t.answered||0, answerRate+'% answer rate'],
+    ['Qualified', t.qualified||0, 'score ≥ '+s.qualified_score],
+    ['Meetings booked', t.meetings||0, ''],
+    ['Avg duration', fmtDur(Math.round(t.avg_duration_sec||0)), ''],
+    ['Handoffs', t.handoffs||0, 'to a human'],
+    ['Cost', '$'+(Number(t.total_cost||0).toFixed(2)), 'provider spend'],
+  ];
+  $('kpis').innerHTML = kpi.map(k=>`<div class="kpi"><div class="n">${esc(k[1])}</div><div class="l">${esc(k[0])}</div>${k[2]?`<div class="sub">${esc(k[2])}</div>`:''}</div>`).join('');
+  const pos=t.positive||0, neu=t.neutral||0, neg=t.negative||0, tot=pos+neu+neg||1;
+  $('sentiment').innerHTML = `${sPill('positive')} ${pos} &nbsp; ${sPill('neutral')} ${neu} &nbsp; ${sPill('negative')} ${neg}`;
+  $('sentBars').innerHTML = `<div style="width:${100*pos/tot}%;background:var(--pos)"></div><div style="width:${100*neu/tot}%;background:var(--neu)"></div><div style="width:${100*neg/tot}%;background:var(--neg)"></div>`;
+  $('langs').innerHTML = (s.by_language||[]).map(l=>`${esc(l.language)} <span class="muted">${l.n}</span>`).join(' · ') || '<span class="muted">No data</span>';
+  $('reasons').innerHTML = (s.by_ended_reason||[]).map(r=>`${esc(r.reason)} <span class="muted">${r.n}</span>`).join(' · ') || '<span class="muted">No data</span>';
+}
+
+async function loadCalls(){
+  const rows = await api('/api/voice');
+  const tb = $('callsTbl').querySelector('tbody');
+  tb.innerHTML = rows.length ? rows.map(c=>`<tr class="clk" onclick="openCall(${c.id})">
+    <td>${fmtWhen(c.created_at)}</td>
+    <td>${esc(c.vendor_name)}<div class="muted">${esc(c.vendor_company||c.vendor_phone||'')}</div></td>
+    <td>${esc(c.status||'—')}</td>
+    <td>${sPill(c.sentiment)}</td>
+    <td>${c.lead_score!=null?esc(c.lead_score):'—'}</td>
+    <td>${esc(c.language||'—')}</td>
+    <td>${c.meeting_at?fmtWhen(c.meeting_at):'—'}</td>
+  </tr>`).join('') : '<tr><td colspan="7" class="muted">No AI calls yet. Place one on the left.</td></tr>';
+}
+
+async function openCall(id){
+  const { call, events } = await api('/api/voice/'+id);
+  const turns = events.filter(e=>e.type==='transcript'||e.type==='tool_call').map(e=>{
+    if (e.type==='tool_call') return `<div class="turn tool"><div class="who">tool · ${esc(e.tool_name)}</div>${esc(e.content)}</div>`;
+    return `<div class="turn ${esc(e.role)}"><div class="who">${esc(e.role)}</div>${esc(e.content)}</div>`;
+  }).join('') || '<p class="muted">No transcript recorded (needs a live provider + PUBLIC_BASE_URL).</p>';
+  $('modal').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px"><h2 style="margin:0">${esc(call.vendor_name)} · ${sPill(call.sentiment)}</h2><div style="flex:1"></div><button class="ghost" onclick="closeModal()">Close</button></div>
+    <div class="muted" style="margin:6px 0 14px">${esc(call.status||'')} · ${fmtDur(call.duration_sec)} · score ${call.lead_score??'—'} · ${esc(call.language||'')} ${call.recording_url?`· <a href="${esc(call.recording_url)}" target="_blank">recording</a>`:''}</div>
+    ${call.summary?`<div class="note" style="margin-bottom:12px"><b>Summary.</b> ${esc(call.summary)}${call.next_step?`<br><b>Next step.</b> ${esc(call.next_step)}`:''}</div>`:''}
+    <h2>Transcript</h2>${turns}`;
+  $('modalBg').style.display='flex';
+}
+function closeModal(){ $('modalBg').style.display='none'; }
+
+async function dial(){
+  const vendor_id = Number($('dialVendor').value);
+  if (!vendor_id){ $('dialOut').innerHTML='<span class="err">Enter a contact ID.</span>'; return; }
+  $('dialBtn').disabled=true; $('dialOut').textContent='Placing…';
+  try {
+    const r = await api('/api/voice/dial', { method:'POST', body: JSON.stringify({ vendor_id, product: $('dialProduct').value||undefined }) });
+    $('dialOut').innerHTML = r.dry_run
+      ? `<span class="pill s-neutral">dry-run</span> Call #${r.id} recorded. ${esc(r.note||'')}`
+      : `<span class="pill s-positive">calling</span> Call #${r.id} · ${esc(r.status)} → ${esc(r.to)}`;
+    loadCalls(); loadStats();
+  } catch(e){ $('dialOut').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  $('dialBtn').disabled=false;
+}
+
+function toggleKbForm(){ const f=$('kbForm'); f.style.display = f.style.display==='none'?'block':'none'; }
+async function loadKb(){
+  const rows = await api('/api/voice/kb');
+  $('kbCount').textContent = rows.length ? `(${rows.length})` : '';
+  const tb = $('kbTbl').querySelector('tbody');
+  tb.innerHTML = rows.length ? rows.map(k=>`<tr>
+    <td>${esc(k.title)}</td><td>${esc(k.product||'—')}</td>
+    <td class="muted">${esc((k.content||'').slice(0,140))}${(k.content||'').length>140?'…':''}</td>
+    <td><button class="ghost" onclick="delKb(${k.id})">✕</button></td></tr>`).join('')
+    : '<tr><td colspan="4" class="muted">No facts yet. The agent will offer to confirm-and-follow-up instead of guessing.</td></tr>';
+}
+async function addKb(){
+  const title=$('kbTitle').value.trim(), content=$('kbContent').value.trim();
+  if(!title||!content){ $('kbErr').textContent='Title and fact are required.'; return; }
+  $('kbErr').textContent='';
+  try {
+    await api('/api/voice/kb', { method:'POST', body: JSON.stringify({ title, content, product:$('kbProduct').value||undefined, tags:$('kbTags').value||undefined }) });
+    $('kbTitle').value=$('kbContent').value=$('kbProduct').value=$('kbTags').value='';
+    toggleKbForm(); loadKb();
+  } catch(e){ $('kbErr').textContent = e.message; }
+}
+async function delKb(id){ if(!confirm('Delete this fact?'))return; await api('/api/voice/kb/'+id,{method:'DELETE'}); loadKb(); }
+
+function loadAll(){ loadStats().catch(e=>$('banner').innerHTML=`<div class="note err">${esc(e.message)}</div>`); loadCalls().catch(()=>{}); }
+loadConfig(); loadAll(); loadKb();
+</script>
+</body>
+</html>

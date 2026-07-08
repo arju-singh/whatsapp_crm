@@ -107,7 +107,133 @@ const PROVIDERS = {
   plivo: scaffold('plivo', 'Plivo', ['PLIVO_AUTH_ID', 'PLIVO_AUTH_TOKEN', 'PLIVO_CALLER_ID']),
   exotel: scaffold('exotel', 'Exotel', ['EXOTEL_SID', 'EXOTEL_TOKEN', 'EXOTEL_CALLER_ID']),
   vonage: scaffold('vonage', 'Vonage', ['VONAGE_API_KEY', 'VONAGE_API_SECRET', 'VONAGE_CALLER_ID']),
+
+  // --- Conversational AI voice agents -------------------------------------
+  // Unlike the human-bridge providers above, these launch an AUTONOMOUS agent
+  // that speaks with the customer (STT→LLM→TTS) and calls our tools mid-call.
+  // The caller (src/routes/voice.js) builds the assistant config via
+  // voice-agent.buildAssistant() and passes it in `payload.assistant`; the
+  // provider runs it and POSTs events to our /api/voice/webhook.
+
+  // Vapi (https://vapi.ai) — REST create-call. Key: VAPI_API_KEY (settings:
+  // voice_vapi_key). Number to dial FROM: a Vapi phoneNumberId (settings:
+  // voice_vapi_phone_number_id) or a BYO SIP/Twilio number id.
+  vapi: {
+    key: 'vapi',
+    label: 'Vapi (AI voice agent)',
+    isReady() {
+      return !!(env('VAPI_API_KEY') || settings.get('voice_vapi_key'));
+    },
+    async dial({ to, assistant, assistantId, metadata }) {
+      if (!this.isReady()) throw new Error('vapi_not_configured');
+      const key = settings.get('voice_vapi_key') || env('VAPI_API_KEY');
+      const phoneNumberId = settings.get('voice_vapi_phone_number_id') || env('VAPI_PHONE_NUMBER_ID');
+      const contact = e164(to);
+      if (!contact) throw new Error('destination_required');
+      if (!phoneNumberId) throw new Error('vapi_phone_number_id_required');
+
+      const bodyObj = {
+        phoneNumberId,
+        customer: { number: contact },
+        metadata: metadata || {},
+      };
+      // Prefer a saved assistantId if provided; otherwise send the inline config.
+      if (assistantId) bodyObj.assistantId = assistantId;
+      else bodyObj.assistant = assistant;
+
+      const data = await httpsPost('https://api.vapi.ai/call', key, bodyObj);
+      return {
+        status: mapVapiStatus(data.status) || 'initiated',
+        providerCallId: data.id || null,
+        dryRun: false,
+        to: contact,
+      };
+    },
+  },
+
+  // Retell AI (https://retellai.com) — create-phone-call. Key: RETELL_API_KEY
+  // (settings: voice_retell_key). Requires a Retell agent id (voice_retell_agent_id)
+  // and a Retell-registered from-number (voice_retell_from_number). Dynamic per-call
+  // context is passed as retell_llm_dynamic_variables + metadata.
+  retell: {
+    key: 'retell',
+    label: 'Retell AI (AI voice agent)',
+    isReady() {
+      return !!((env('RETELL_API_KEY') || settings.get('voice_retell_key'))
+        && (env('RETELL_AGENT_ID') || settings.get('voice_retell_agent_id')));
+    },
+    async dial({ to, metadata, assistant }) {
+      if (!this.isReady()) throw new Error('retell_not_configured');
+      const key = settings.get('voice_retell_key') || env('RETELL_API_KEY');
+      const agentId = settings.get('voice_retell_agent_id') || env('RETELL_AGENT_ID');
+      const fromNumber = e164(settings.get('voice_retell_from_number') || env('RETELL_FROM_NUMBER'));
+      const contact = e164(to);
+      if (!contact) throw new Error('destination_required');
+      if (!fromNumber) throw new Error('retell_from_number_required');
+
+      // Retell agents are configured in Retell's dashboard; we pass the dynamic
+      // greeting + system context as variables and the CRM linkage as metadata.
+      const dyn = {};
+      if (assistant) {
+        if (assistant.firstMessage) dyn.first_message = assistant.firstMessage;
+        const sys = assistant.model && Array.isArray(assistant.model.messages)
+          && assistant.model.messages.find((m) => m.role === 'system');
+        if (sys) dyn.system_prompt = sys.content;
+      }
+      const data = await httpsPost('https://api.retellai.com/v2/create-phone-call', key, {
+        from_number: fromNumber,
+        to_number: contact,
+        override_agent_id: agentId,
+        retell_llm_dynamic_variables: dyn,
+        metadata: metadata || {},
+      });
+      return {
+        status: 'initiated',
+        providerCallId: data.call_id || null,
+        dryRun: false,
+        to: contact,
+      };
+    },
+  },
 };
+
+// Bearer-auth JSON POST used by the AI voice providers. Kept local (no SDK dep),
+// mirroring the raw-HTTPS approach in ai-agent.js / voice-agent.js.
+function httpsPost(url, bearer, bodyObj) {
+  const { URL } = require('url');
+  const u = new URL(url);
+  const payload = JSON.stringify(bodyObj || {});
+  return new Promise((resolve, reject) => {
+    const req = require('https').request({
+      host: u.hostname, path: u.pathname + u.search, port: u.port || 443, method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+        Authorization: `Bearer ${bearer}`,
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let parsed; try { parsed = text ? JSON.parse(text) : {}; } catch (_) { parsed = { raw: text }; }
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve(parsed);
+        else reject(new Error(`voice_provider ${res.statusCode}: ${parsed.message || parsed.error || text.slice(0, 300)}`));
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+// Map Vapi call status → our calls.status vocabulary.
+function mapVapiStatus(s) {
+  return {
+    queued: 'initiated', scheduled: 'initiated', ringing: 'ringing',
+    'in-progress': 'connected', forwarding: 'connected', ended: 'completed',
+  }[s] || s || 'initiated';
+}
 
 function get(key) {
   const p = PROVIDERS[key];

@@ -23,6 +23,36 @@ const DEFAULTS = {
   foursquare_api_key: '',
   here_api_key: '',
   tomtom_api_key: '',
+
+  // --- Voice AI agent -------------------------------------------------------
+  // Which conversational-AI provider places calls: 'log' (dry-run), 'vapi', 'retell'.
+  voice_provider: 'log',
+  voice_agent_name: 'Ananya',
+  voice_company_name: '',                 // falls back to first sentence of ai_business_profile
+  // Newline- or JSON-array-separated "Name — what it solves" offerings the agent pitches.
+  voice_products: '',
+  voice_languages: 'English, Hindi, Hinglish, Punjabi, and any language the caller uses',
+  voice_default_language: 'Hinglish',
+  voice_first_message: '',                // blank → auto-generated honest AI greeting
+  voice_model: 'claude-sonnet-4-6',
+  voice_model_provider: '',               // blank → inferred from model id (anthropic/openai/google)
+  voice_temperature: '0.5',
+  voice_tts_provider: '11labs',
+  voice_tts_voice: 'burt',
+  voice_stt_provider: 'deepgram',
+  voice_stt_model: 'nova-2',
+  voice_stt_language: 'multi',
+  voice_recording: '1',                   // '1' record+transcribe, '0' off
+  voice_qualified_score: '70',            // lead_score >= this counts as "qualified"
+  voice_handoff_number: '',               // E.164 number to transfer angry/complex callers to
+  public_base_url: '',                    // public URL the provider reaches our webhook at
+  // Provider credentials (secret — redacted by the settings route).
+  voice_webhook_secret: '',
+  voice_vapi_key: '',
+  voice_vapi_phone_number_id: '',
+  voice_retell_key: '',
+  voice_retell_agent_id: '',
+  voice_retell_from_number: '',
 };
 
 const ENV_MAP = {
@@ -48,6 +78,33 @@ const ENV_MAP = {
   foursquare_api_key: 'FOURSQUARE_API_KEY',
   here_api_key: 'HERE_API_KEY',
   tomtom_api_key: 'TOMTOM_API_KEY',
+
+  // Voice AI agent
+  voice_provider: 'VOICE_PROVIDER',
+  voice_agent_name: 'VOICE_AGENT_NAME',
+  voice_company_name: 'VOICE_COMPANY_NAME',
+  voice_products: 'VOICE_PRODUCTS',
+  voice_languages: 'VOICE_LANGUAGES',
+  voice_default_language: 'VOICE_DEFAULT_LANGUAGE',
+  voice_first_message: 'VOICE_FIRST_MESSAGE',
+  voice_model: 'VOICE_MODEL',
+  voice_model_provider: 'VOICE_MODEL_PROVIDER',
+  voice_temperature: 'VOICE_TEMPERATURE',
+  voice_tts_provider: 'VOICE_TTS_PROVIDER',
+  voice_tts_voice: 'VOICE_TTS_VOICE',
+  voice_stt_provider: 'VOICE_STT_PROVIDER',
+  voice_stt_model: 'VOICE_STT_MODEL',
+  voice_stt_language: 'VOICE_STT_LANGUAGE',
+  voice_recording: 'VOICE_RECORDING',
+  voice_qualified_score: 'VOICE_QUALIFIED_SCORE',
+  voice_handoff_number: 'VOICE_HANDOFF_NUMBER',
+  public_base_url: 'PUBLIC_BASE_URL',
+  voice_webhook_secret: 'VOICE_WEBHOOK_SECRET',
+  voice_vapi_key: 'VAPI_API_KEY',
+  voice_vapi_phone_number_id: 'VAPI_PHONE_NUMBER_ID',
+  voice_retell_key: 'RETELL_API_KEY',
+  voice_retell_agent_id: 'RETELL_AGENT_ID',
+  voice_retell_from_number: 'RETELL_FROM_NUMBER',
 };
 
 const cache = new Map();
