@@ -13,3 +13,5 @@ node_modules
 .wwebjs_auth
 .wwebjs_cache
 *.nosync
+# Stray unrelated project accidentally placed inside the repo (its own package.json/server.js)
+Whatsapp ai agent automation/
