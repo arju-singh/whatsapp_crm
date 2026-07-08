@@ -141,8 +141,14 @@ router.put('/:id/stage', body({
     db.prepare(`UPDATE deals SET forecast = 'closed', score = 0 WHERE id = @id AND ${orgFilter()}`).run({ id: req.params.id, orgId: req.orgId });
   }
   try {
-    const deal = db.prepare(`SELECT d.*, v.* FROM deals d LEFT JOIN vendors v ON v.id = d.contact_id WHERE d.id = @id AND ${orgFilter('d')}`).get({ id: req.params.id, orgId: req.orgId });
-    require('../automation').fire('deal_stage_changed', { deal, vendor: deal && deal.contact_id ? deal : null, stage });
+    // Fetch the deal and its contact separately — a `SELECT d.*, v.*` join would
+    // collide on duplicate columns (id, created_at, notes, …) and overwrite the
+    // deal's own id/fields with the vendor's, breaking downstream automations.
+    const deal = db.prepare(`SELECT * FROM deals WHERE id = @id AND ${orgFilter()}`).get({ id: req.params.id, orgId: req.orgId });
+    const vendor = deal && deal.contact_id
+      ? db.prepare(`SELECT * FROM vendors WHERE id = @id AND ${orgFilter()}`).get({ id: deal.contact_id, orgId: req.orgId })
+      : null;
+    require('../automation').fire('deal_stage_changed', { deal, vendor, stage });
   } catch (_) {}
   res.json({ ok: true, changes: r.changes });
 });

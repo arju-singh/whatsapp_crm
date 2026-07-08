@@ -26,6 +26,19 @@ router.post('/', body({
   res.json({ id: r.lastInsertRowid });
 });
 
+// NOTE: must be registered BEFORE '/:id' or Express routes PUT /reorder into the
+// param handler (id="reorder") and the body validator 400s.
+router.put('/reorder', body({
+  order: S.array({ of: S.int({ min: 0 }), maxItems: 1000 }),
+}), (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order_array_required' });
+  const upd = db.prepare(`UPDATE stages SET position = @position WHERE id = @id AND ${orgFilter()}`);
+  const tx = db.transaction(() => { order.forEach((id, idx) => upd.run({ position: idx + 1, id, orgId: req.orgId })); });
+  tx();
+  res.json({ ok: true });
+});
+
 router.put('/:id', body({
   name: S.string({ maxLength: 200 }),
   color: S.string({ maxLength: 60 }),
@@ -40,17 +53,6 @@ router.put('/:id', body({
   for (const k of allowed) if (req.body[k] !== undefined) { sets.push(`${k} = @${k}`); params[k] = req.body[k]; }
   if (!sets.length) return res.json({ ok: true });
   db.prepare(`UPDATE stages SET ${sets.join(', ')} WHERE id = @id AND ${orgFilter()}`).run(params);
-  res.json({ ok: true });
-});
-
-router.put('/reorder', body({
-  order: S.array({ of: S.int({ min: 0 }), maxItems: 1000 }),
-}), (req, res) => {
-  const { order } = req.body;
-  if (!Array.isArray(order)) return res.status(400).json({ error: 'order_array_required' });
-  const upd = db.prepare(`UPDATE stages SET position = @position WHERE id = @id AND ${orgFilter()}`);
-  const tx = db.transaction(() => { order.forEach((id, idx) => upd.run({ position: idx + 1, id, orgId: req.orgId })); });
-  tx();
   res.json({ ok: true });
 });
 

@@ -250,8 +250,22 @@ function verifyMailgun(req) {
   return timingSafeEq(expected, signature) ? { ok: true } : { ok: false, reason: 'signature_mismatch' };
 }
 
+// Providers with no HMAC signature scheme (generic/sendgrid/postmark) rely on a
+// shared secret instead: the caller must present it via ?token= or the
+// x-webhook-token header. Skipped (open) only when no secret is configured.
+function verifySharedToken(req) {
+  const secret = settings.get('email_webhook_secret') || process.env.EMAIL_WEBHOOK_SECRET || '';
+  if (!secret) return { ok: true, skipped: true };
+  const provided = String(req.get('x-webhook-token') || req.query.token || '');
+  if (provided && timingSafeEq(provided, secret)) return { ok: true };
+  return { ok: false, reason: 'bad_token' };
+}
+
 function rejectIfRequired(res, verdict, provider) {
-  const required = settings.get('webhook_signature_required') === '1';
+  // Signature/token enforcement is on when explicitly enabled, and on by default
+  // in production so no webhook route falls back to its permissive dev path.
+  const required = settings.get('webhook_signature_required') === '1'
+    || process.env.NODE_ENV === 'production';
   if (verdict.skipped) {
     if (!required) return false;
     res.status(401).json({ error: 'webhook_secret_not_configured', provider });
@@ -265,6 +279,7 @@ function rejectIfRequired(res, verdict, provider) {
 
 // Generic — accepts { event, email, message_id, reason }
 router.post('/webhook/generic', (req, res) => {
+  if (rejectIfRequired(res, verifySharedToken(req), 'generic')) return;
   const events = Array.isArray(req.body) ? req.body : [req.body];
   for (const e of events) {
     applyWebhookEvent({
@@ -279,6 +294,7 @@ router.post('/webhook/generic', (req, res) => {
 
 // SendGrid event webhook — array of events
 router.post('/webhook/sendgrid', (req, res) => {
+  if (rejectIfRequired(res, verifySharedToken(req), 'sendgrid')) return;
   const events = Array.isArray(req.body) ? req.body : [];
   for (const e of events) {
     applyWebhookEvent({
@@ -307,6 +323,7 @@ router.post('/webhook/resend', (req, res) => {
 
 // Postmark — { RecordType, Email, MessageID, Description }
 router.post('/webhook/postmark', (req, res) => {
+  if (rejectIfRequired(res, verifySharedToken(req), 'postmark')) return;
   const e = req.body || {};
   applyWebhookEvent({
     event: e.RecordType || e.Type,

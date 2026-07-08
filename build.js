@@ -26,7 +26,7 @@ const FILES = [
   'data.jsx', 'icons.jsx', 'layout.jsx', 'tweaks-panel.jsx',
   'dashboard.jsx', 'contacts.jsx', 'deals.jsx', 'tasks-cal-inbox.jsx',
   'other-views.jsx', 'messaging.jsx', 'modals.jsx', 'ai-cmd.jsx',
-  'users.jsx', 'app.jsx',
+  'users.jsx', 'properties.jsx', 'data-studio.jsx', 'modules-admin.jsx', 'app.jsx',
 ];
 
 async function build() {

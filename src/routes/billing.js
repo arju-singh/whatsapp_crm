@@ -108,7 +108,12 @@ router.post('/portal', body({}), async (req, res) => {
 // --- Webhook (public; signature-verified) -----------------------------------
 // Mounted with req.rawBody available (server.js captures it in express.json verify).
 function verifyStripeSig(rawBody, header, secret) {
-  if (!secret) return true; // dev mode: accept if no secret set (logged elsewhere)
+  if (!secret) {
+    // No webhook secret configured. In production this is unsafe (anyone could
+    // POST forged subscription events), so reject. Only accept in development.
+    if (process.env.NODE_ENV === 'production') return false;
+    return true;
+  }
   if (!header || !rawBody) return false;
   const parts = Object.fromEntries(header.split(',').map((p) => p.split('=')));
   const signedPayload = `${parts.t}.${rawBody.toString('utf8')}`;

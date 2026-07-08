@@ -194,7 +194,6 @@ async function draftReply(vendorId, { trigger = 'manual' } = {}) {
     body: parsed.reply,
     rationale: parsed.rationale,
     confidence: parsed.confidence,
-    usage: result.usage,
   };
 }
 
