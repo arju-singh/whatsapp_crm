@@ -1,0 +1,119 @@
+# Auto-deploy to the production VPS on every push to main.
+#
+# Flow:  test (npm test) ──▶ deploy (SSH: back up DB → git pull → rebuild → health)
+#
+# ── Required repository secrets (Settings → Secrets and variables → Actions) ──
+#   DEPLOY_SSH_KEY   Private SSH key (PEM) authorized on the server. Generate with
+#                    `ssh-keygen -t ed25519 -f deploy_key -N ""` and add the .pub
+#                    to the server's ~/.ssh/authorized_keys; paste the private key here.
+#   DEPLOY_HOST      Server hostname or IP (e.g. crm.arjusingh.com or the raw IP).
+#   DEPLOY_USER      SSH user (e.g. root).
+# ── Optional secrets ──
+#   DEPLOY_PORT              SSH port (default 22).
+#   DEPLOY_PATH             Checkout dir on the server (default /opt/whatsapp_crm).
+#   DEPLOY_HEALTHCHECK_URL  Public health URL to verify after deploy
+#                           (e.g. https://crm.arjusingh.com/healthz). If set, the
+#                           job FAILS when it doesn't return healthy.
+#
+# Safety valve: this uses the GitHub "production" environment, so you can add a
+# required reviewer (Settings → Environments → production) to gate deploys behind
+# a manual approval without changing this file.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_SSH_KEY:-}" ] || [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_USER:-}" ]; then
+            echo "::error::Missing required secrets DEPLOY_SSH_KEY / DEPLOY_HOST / DEPLOY_USER — see workflow header."
+            exit 1
+          fi
+          PORT="${DEPLOY_PORT:-22}"
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "$PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # Run the deploy remotely. APP_DIR is interpolated in; the heredoc is
+          # single-quoted so nothing else expands locally.
+          ssh -i ~/.ssh/id_deploy -p "$PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR='${DEPLOY_PATH:-/opt/whatsapp_crm}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "${APP_DIR:-/opt/whatsapp_crm}"
+          COMPOSE="docker compose -f docker-compose.prod.yml"
+
+          echo "==> Backing up the database (the vendors migration rebuilds a table)"
+          if [ -n "$($COMPOSE ps -q crm 2>/dev/null)" ]; then
+            $COMPOSE exec -T crm sh -lc 'cp -v /app/data/crm.db "/app/data/crm.db.bak-$(date +%F-%H%M%S)"' \
+              || echo "   (backup skipped — DB not present yet)"
+            # Keep only the 10 most recent backups.
+            $COMPOSE exec -T crm sh -lc 'ls -1t /app/data/crm.db.bak-* 2>/dev/null | tail -n +11 | xargs -r rm -f' || true
+          else
+            echo "   (crm container not running — first deploy, nothing to back up)"
+          fi
+
+          echo "==> Fetching latest main"
+          git fetch --all --prune
+          git reset --hard origin/main   # deploy box: .env + DB live outside git (gitignored / volumes)
+
+          echo "==> Rebuilding + restarting"
+          $COMPOSE up -d --build
+
+          echo "==> Waiting for boot"
+          sleep 20
+          echo "==> Recent app logs (migration + boot):"
+          $COMPOSE logs --tail=40 crm || true
+          echo "==> Deploy step complete on host"
+          REMOTE
+
+      - name: Health check
+        if: ${{ success() }}
+        env:
+          HEALTHCHECK_URL: ${{ secrets.DEPLOY_HEALTHCHECK_URL }}
+        run: |
+          if [ -z "${HEALTHCHECK_URL:-}" ]; then
+            echo "DEPLOY_HEALTHCHECK_URL not set — skipping external health check."
+            exit 0
+          fi
+          echo "Checking $HEALTHCHECK_URL ..."
+          for i in $(seq 1 12); do
+            body="$(curl -fsS --max-time 10 "$HEALTHCHECK_URL" || true)"
+            echo "  attempt $i: $body"
+            case "$body" in
+              *'"status":"ok"'*|*'"db":"up"'*) echo "Healthy."; exit 0 ;;
+            esac
+            sleep 5
+          done
+          echo "::error::Service did not report healthy after deploy."
+          exit 1
