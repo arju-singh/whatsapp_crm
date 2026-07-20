@@ -5,9 +5,8 @@ const { orgFilter } = require('../tenancy');
 
 const router = express.Router();
 
-function normPhone(p) {
-  return String(p || '').replace(/\D/g, '').replace(/^0+/, '');
-}
+// Suppression matching uses digits-only (no country-code prefix), preserved here.
+const normPhone = (p) => require('../phone').digitsOnly(p);
 
 router.get('/', (req, res) => {
   const rows = db.prepare(`
@@ -48,26 +47,34 @@ router.get('/check', (req, res) => {
   res.json({ suppressed: !!row, match: row || null });
 });
 
-function isSuppressed({ phone, email }) {
+// Suppression checks/writes are ALWAYS org-scoped: a suppression is a promise a
+// specific tenant made to a specific contact, and must never block (or be
+// created for) another tenant. `orgId` is required — a null org returns no match
+// / writes nothing, so a caller that forgot to resolve org fails closed instead
+// of leaking across tenants.
+function isSuppressed(orgId, { phone, email }) {
+  if (orgId == null) return null;
   const p = normPhone(phone);
   const e = (email || '').toLowerCase();
   if (!p && !e) return null;
   return db.prepare(`
     SELECT id, phone, email, reason FROM suppressions
-    WHERE (? != '' AND phone = ?) OR (? != '' AND email = ?) LIMIT 1
-  `).get(p, p, e, e) || null;
+    WHERE ((? != '' AND phone = ?) OR (? != '' AND email = ?))
+      AND organization_id = ? AND deleted_at IS NULL LIMIT 1
+  `).get(p, p, e, e, orgId) || null;
 }
 
-function addSuppression({ phone, email, reason, source }) {
+function addSuppression({ orgId, phone, email, reason, source }) {
+  if (orgId == null) return null;
   const p = normPhone(phone);
   const e = (email || '').toLowerCase();
   if (!p && !e) return null;
-  const existing = isSuppressed({ phone: p, email: e });
+  const existing = isSuppressed(orgId, { phone: p, email: e });
   if (existing) return existing;
   const r = db.prepare(`
-    INSERT INTO suppressions (phone, email, reason, source) VALUES (?, ?, ?, ?)
-  `).run(p || null, e || null, reason || 'auto', source || 'system');
-  return { id: r.lastInsertRowid, phone: p, email: e, reason };
+    INSERT INTO suppressions (organization_id, phone, email, reason, source) VALUES (?, ?, ?, ?, ?)
+  `).run(orgId, p || null, e || null, reason || 'auto', source || 'system');
+  return { id: r.lastInsertRowid, orgId, phone: p, email: e, reason };
 }
 
 module.exports = router;

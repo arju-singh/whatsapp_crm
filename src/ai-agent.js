@@ -132,30 +132,33 @@ async function callGemini({ model, key, systemText, userBlock }) {
   return ((cand && cand.content && cand.content.parts) || []).map((p) => p.text || '').join('');
 }
 
-function fetchThread(vendorId, limit = 20) {
+function fetchThread(vendorId, orgId, limit = 20) {
   const messages = db.prepare(`
     SELECT direction, body, created_at FROM messages
-    WHERE vendor_id = ? AND body IS NOT NULL AND body <> ''
+    WHERE vendor_id = ? AND organization_id = ? AND body IS NOT NULL AND body <> ''
     ORDER BY created_at DESC LIMIT ?
-  `).all(vendorId, limit);
+  `).all(vendorId, orgId, limit);
   return messages.reverse();
 }
 
-function fetchVendor(vendorId) {
-  return db.prepare('SELECT * FROM vendors WHERE id = ?').get(vendorId);
+function fetchVendor(vendorId, orgId) {
+  return db.prepare('SELECT * FROM vendors WHERE id = ? AND organization_id = ? AND deleted_at IS NULL').get(vendorId, orgId);
 }
 
-async function draftReply(vendorId, { trigger = 'manual' } = {}) {
+// orgId is required — every read/write below is scoped to it so a draft is only
+// ever generated/stored for a contact the caller's org actually owns.
+async function draftReply(vendorId, orgId, { trigger = 'manual' } = {}) {
+  if (orgId == null) throw new Error('org_required');
   const model = getModel();
   const provider = providerFor(model);
   const key = getKeyFor(provider);
-  const vendor = fetchVendor(vendorId);
+  const vendor = fetchVendor(vendorId, orgId);
   if (!vendor) throw new Error('vendor_not_found');
-  const thread = fetchThread(vendorId, 20);
+  const thread = fetchThread(vendorId, orgId, 20);
   if (!thread.length) throw new Error('no_messages_to_reply_to');
 
   // Skip if a pending draft already exists
-  const existing = db.prepare(`SELECT id FROM ai_drafts WHERE vendor_id = ? AND status = 'pending'`).get(vendorId);
+  const existing = db.prepare(`SELECT id FROM ai_drafts WHERE vendor_id = ? AND organization_id = ? AND status = 'pending'`).get(vendorId, orgId);
   if (existing) return { skipped: true, draft_id: existing.id };
 
   const userBlock = [
@@ -185,9 +188,9 @@ async function draftReply(vendorId, { trigger = 'manual' } = {}) {
   }
 
   const r = db.prepare(`
-    INSERT INTO ai_drafts (vendor_id, channel, trigger, body, rationale, status, model)
-    VALUES (?, 'whatsapp', ?, ?, ?, 'pending', ?)
-  `).run(vendorId, trigger, parsed.reply || '(empty)', parsed.rationale || '', getModel());
+    INSERT INTO ai_drafts (organization_id, vendor_id, channel, trigger, body, rationale, status, model)
+    VALUES (?, ?, 'whatsapp', ?, ?, ?, 'pending', ?)
+  `).run(orgId, vendorId, trigger, parsed.reply || '(empty)', parsed.rationale || '', getModel());
 
   return {
     draft_id: r.lastInsertRowid,
@@ -197,39 +200,39 @@ async function draftReply(vendorId, { trigger = 'manual' } = {}) {
   };
 }
 
-function listDrafts({ status = 'pending', vendor_id = null } = {}) {
-  const filters = [];
-  const params = {};
+function listDrafts({ status = 'pending', vendor_id = null, orgId = null } = {}) {
+  const filters = ['d.organization_id = @orgId', 'd.deleted_at IS NULL'];
+  const params = { orgId };
   if (status) { filters.push('d.status = @status'); params.status = status; }
   if (vendor_id) { filters.push('d.vendor_id = @vendor_id'); params.vendor_id = vendor_id; }
-  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const where = `WHERE ${filters.join(' AND ')}`;
   return db.prepare(`
     SELECT d.*, v.name AS vendor_name, v.phone AS vendor_phone
-    FROM ai_drafts d JOIN vendors v ON v.id = d.vendor_id
+    FROM ai_drafts d JOIN vendors v ON v.id = d.vendor_id AND v.organization_id = @orgId
     ${where} ORDER BY d.created_at DESC LIMIT 200
   `).all(params);
 }
 
-function approveDraft(draftId) {
-  const draft = db.prepare('SELECT * FROM ai_drafts WHERE id = ?').get(draftId);
+function approveDraft(draftId, orgId) {
+  const draft = db.prepare('SELECT * FROM ai_drafts WHERE id = ? AND organization_id = ? AND deleted_at IS NULL').get(draftId, orgId);
   if (!draft) throw new Error('draft_not_found');
   if (draft.status !== 'pending') throw new Error('draft_not_pending');
   const transports = require('./transports');
   const r = db.prepare(`
-    INSERT INTO messages (vendor_id, direction, body, status) VALUES (?, 'out', ?, 'queued')
-  `).run(draft.vendor_id, draft.body);
-  db.prepare(`UPDATE ai_drafts SET status = 'sent', acted_at = ? WHERE id = ?`).run(Date.now(), draftId);
+    INSERT INTO messages (organization_id, vendor_id, direction, body, status) VALUES (?, ?, 'out', ?, 'queued')
+  `).run(orgId, draft.vendor_id, draft.body);
+  db.prepare(`UPDATE ai_drafts SET status = 'sent', acted_at = ? WHERE id = ? AND organization_id = ?`).run(Date.now(), draftId, orgId);
   transports.sendMessage('whatsapp', r.lastInsertRowid);
   return { ok: true, message_id: r.lastInsertRowid };
 }
 
-function dismissDraft(draftId) {
-  db.prepare(`UPDATE ai_drafts SET status = 'dismissed', acted_at = ? WHERE id = ?`).run(Date.now(), draftId);
+function dismissDraft(draftId, orgId) {
+  db.prepare(`UPDATE ai_drafts SET status = 'dismissed', acted_at = ? WHERE id = ? AND organization_id = ?`).run(Date.now(), draftId, orgId);
   return { ok: true };
 }
 
-function editDraft(draftId, body) {
-  db.prepare('UPDATE ai_drafts SET body = ? WHERE id = ?').run(body, draftId);
+function editDraft(draftId, body, orgId) {
+  db.prepare('UPDATE ai_drafts SET body = ? WHERE id = ? AND organization_id = ?').run(body, draftId, orgId);
   return { ok: true };
 }
 
@@ -252,7 +255,8 @@ function autoDraftBudgetOk() {
 // Inbound auto-draft: called from automation engine when a message arrives.
 // Won't fire if ai_auto_draft_inbound = 0, if no API key set, or if the hourly
 // inbound budget is exhausted (flood protection / cost control).
-async function maybeAutoDraftInbound(vendorId) {
+async function maybeAutoDraftInbound(vendorId, orgId) {
+  if (orgId == null) return;
   if (settings.get('ai_auto_draft_inbound') !== '1') return;
   if (!aiConfigured()) return; // no key for the configured provider (Anthropic or Gemini)
   if (!autoDraftBudgetOk()) {
@@ -260,7 +264,7 @@ async function maybeAutoDraftInbound(vendorId) {
     return;
   }
   try {
-    return await draftReply(vendorId, { trigger: 'inbound' });
+    return await draftReply(vendorId, orgId, { trigger: 'inbound' });
   } catch (e) {
     console.error('[ai] auto-draft failed:', e.message);
   }

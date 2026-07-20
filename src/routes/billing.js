@@ -116,6 +116,12 @@ function verifyStripeSig(rawBody, header, secret) {
   }
   if (!header || !rawBody) return false;
   const parts = Object.fromEntries(header.split(',').map((p) => p.split('=')));
+  // Replay protection: reject events whose signed timestamp is outside the
+  // tolerance window (default 5 min) so a captured webhook can't be replayed.
+  const ts = Number(parts.t);
+  if (!Number.isFinite(ts)) return false;
+  const toleranceSec = Number(process.env.STRIPE_WEBHOOK_TOLERANCE_SEC) || 300;
+  if (Math.abs(Math.floor(Date.now() / 1000) - ts) > toleranceSec) return false;
   const signedPayload = `${parts.t}.${rawBody.toString('utf8')}`;
   const expected = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
   try {
@@ -172,3 +178,4 @@ router.post('/webhook', (req, res) => {
 });
 
 module.exports = router;
+module.exports.verifyStripeSig = verifyStripeSig; // exported for tests

@@ -314,7 +314,9 @@ function parseWhen(s) {
 
 // ctx: { orgId, callId, vendorId }. Returns a short result the agent can act on.
 async function executeTool(name, args = {}, ctx = {}) {
-  const orgId = ctx.orgId || 1;
+  // Never default to org 1 — an unresolved org fails closed (org-scoped tool
+  // queries match nothing) rather than acting on the default tenant's data.
+  const orgId = ctx.orgId || null;
   const logEvent = (payload) => insertEvent({ ...payload, orgId, callId: ctx.callId });
   logEvent({ role: 'tool', type: 'tool_call', tool_name: name, content: JSON.stringify(args).slice(0, 4000) });
 
@@ -366,7 +368,7 @@ async function executeTool(name, args = {}, ctx = {}) {
             WHERE id = @id AND ${orgFilter()}`)
             .run({ now: Date.now(), score: args.lead_score != null ? Math.round(args.lead_score) : null, note: args.summary || null, st: newStatus, id: v.id, orgId });
           if (args.outcome === 'do_not_contact' && v.phone) {
-            try { require('./routes/suppressions').addSuppression({ phone: v.phone, reason: 'voice_do_not_contact', source: 'voice_agent' }); } catch (_) {}
+            try { require('./routes/suppressions').addSuppression({ orgId, phone: v.phone, reason: 'voice_do_not_contact', source: 'voice_agent' }); } catch (_) {}
           }
         }
         return { ok: true, message: 'Outcome logged.' };
@@ -436,7 +438,7 @@ async function executeTool(name, args = {}, ctx = {}) {
 // 3. Provider webhook ingestion
 // =============================================================================
 
-function insertEvent({ orgId = 1, callId = null, providerCallId = null, role, type, tool_name = null, content = null }) {
+function insertEvent({ orgId = null, callId = null, providerCallId = null, role, type, tool_name = null, content = null }) {
   try {
     db.prepare(`INSERT INTO call_events (organization_id, call_id, provider_call_id, role, type, tool_name, content)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(orgId, callId, providerCallId, role || null, type || null, tool_name, content);
@@ -457,7 +459,9 @@ function resolveContext(message) {
   if (callId) row = db.prepare('SELECT * FROM calls WHERE id = ?').get(callId);
   if (!row && providerCallId) row = db.prepare('SELECT * FROM calls WHERE provider_call_id = ?').get(providerCallId);
   if (row) { callId = row.id; orgId = orgId || row.organization_id; vendorId = vendorId || row.vendor_id; }
-  return { callId, orgId: orgId || 1, vendorId, providerCallId, row };
+  // No org 1 fallback: an unattributable event resolves to null org and its
+  // downstream org-scoped writes/reads no-op rather than hitting the default org.
+  return { callId, orgId: orgId || null, vendorId, providerCallId, row };
 }
 
 // Normalize the various tool-call payload shapes (Vapi tool-calls, OpenAI-style

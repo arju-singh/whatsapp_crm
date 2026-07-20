@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { body, S } = require('../validate');
-const { orgFilter } = require('../tenancy');
+const { orgFilter, fkError } = require('../tenancy');
 
 const router = express.Router();
 
@@ -17,8 +17,8 @@ router.get('/', (req, res) => {
       d.name AS deal_name,
       v.name AS contact_name
     FROM calendar_events e
-    LEFT JOIN deals d ON d.id = e.deal_id
-    LEFT JOIN vendors v ON v.id = e.contact_id
+    LEFT JOIN deals d ON d.id = e.deal_id AND d.organization_id = @orgId AND d.deleted_at IS NULL
+    LEFT JOIN vendors v ON v.id = e.contact_id AND v.organization_id = @orgId AND v.deleted_at IS NULL
     ${where}
     ORDER BY starts_at ASC
   `).all(params);
@@ -36,6 +36,9 @@ router.post('/', body({
 }), (req, res) => {
   const { title, starts_at, ends_at, color, deal_id, contact_id, notes } = req.body;
   if (!title || !starts_at || !ends_at) return res.status(400).json({ error: 'title_starts_ends_required' });
+  const fkErr = fkError(req.orgId, 'deals', deal_id, 'deal_id')
+    || fkError(req.orgId, 'vendors', contact_id, 'contact_id');
+  if (fkErr) return res.status(400).json({ error: fkErr });
   const r = db.prepare(`
     INSERT INTO calendar_events (organization_id, title, starts_at, ends_at, color, deal_id, contact_id, notes)
     VALUES (?, ?, ?, ?, COALESCE(?, '#7A7670'), ?, ?, ?)
@@ -52,6 +55,9 @@ router.put('/:id', body({
   contact_id: S.int({ min: 0 }),
   notes: S.text(),
 }), (req, res) => {
+  const fkErr = fkError(req.orgId, 'deals', req.body.deal_id, 'deal_id')
+    || fkError(req.orgId, 'vendors', req.body.contact_id, 'contact_id');
+  if (fkErr) return res.status(400).json({ error: fkErr });
   const allowed = ['title', 'starts_at', 'ends_at', 'color', 'deal_id', 'contact_id', 'notes'];
   const sets = [];
   const params = { id: req.params.id, orgId: req.orgId };

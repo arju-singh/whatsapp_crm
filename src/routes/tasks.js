@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { body, S } = require('../validate');
-const { orgFilter } = require('../tenancy');
+const { orgFilter, fkError } = require('../tenancy');
 
 const router = express.Router();
 
@@ -22,7 +22,7 @@ router.get('/', (req, res) => {
   const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
   const rows = db.prepare(`
     SELECT t.*, v.name AS vendor_name, v.phone AS vendor_phone
-    FROM tasks t LEFT JOIN vendors v ON v.id = t.vendor_id
+    FROM tasks t LEFT JOIN vendors v ON v.id = t.vendor_id AND v.organization_id = @orgId AND v.deleted_at IS NULL
     ${where} ORDER BY t.completed ASC, t.due_at ASC NULLS LAST, t.created_at DESC LIMIT @limit
   `).all(params);
   res.json(rows);
@@ -40,6 +40,9 @@ router.post('/', body({
 }), (req, res) => {
   const { vendor_id, title, description, due_at, priority, type, owner, deal_id } = req.body;
   if (!title) return res.status(400).json({ error: 'title_required' });
+  const fkErr = fkError(req.orgId, 'vendors', vendor_id, 'vendor_id')
+    || fkError(req.orgId, 'deals', deal_id, 'deal_id');
+  if (fkErr) return res.status(400).json({ error: fkErr });
   const r = db.prepare(`
     INSERT INTO tasks (organization_id, vendor_id, title, description, due_at, priority, type, owner, deal_id)
     VALUES (?, ?, ?, ?, ?, COALESCE(?, 'normal'), COALESCE(?, 'task'), ?, ?)
@@ -58,6 +61,9 @@ router.put('/:id', body({
   deal_id: S.int({ min: 0 }),
   completed: S.flag(),
 }), (req, res) => {
+  const fkErr = fkError(req.orgId, 'vendors', req.body.vendor_id, 'vendor_id')
+    || fkError(req.orgId, 'deals', req.body.deal_id, 'deal_id');
+  if (fkErr) return res.status(400).json({ error: fkErr });
   const allowed = ['title', 'description', 'due_at', 'priority', 'vendor_id', 'type', 'owner', 'deal_id'];
   const sets = [];
   const params = { id: req.params.id, orgId: req.orgId };

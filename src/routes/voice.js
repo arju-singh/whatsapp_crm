@@ -35,6 +35,11 @@ router.post('/webhook', async (req, res) => {
     const b = Buffer.from(secret);
     const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
     if (!ok) return res.status(401).json({ error: 'bad_secret' });
+  } else if (process.env.NODE_ENV === 'production') {
+    // Fail closed in production: an unconfigured secret must NOT mean "accept
+    // anything", or anyone could POST forged call events. Mirrors the email
+    // (rejectIfRequired) and Stripe webhook behaviour.
+    return res.status(401).json({ error: 'webhook_secret_not_configured' });
   }
   try {
     const result = await voice.handleWebhook(req.body || {});
@@ -85,7 +90,8 @@ router.post('/dial', requirePerm('voice.make'), body({
   if (!vendor) return res.status(404).json({ error: 'vendor_not_found' });
   if (!vendor.phone) return res.status(400).json({ error: 'vendor_has_no_phone' });
 
-  const suppressed = db.prepare('SELECT 1 FROM suppressions WHERE phone = ? LIMIT 1').get(String(vendor.phone).replace(/\D/g, ''));
+  const suppressed = db.prepare(`SELECT 1 FROM suppressions WHERE phone = @phone AND ${orgFilter()} LIMIT 1`)
+    .get({ phone: String(vendor.phone).replace(/\D/g, ''), orgId: req.orgId });
   if (suppressed) return res.status(409).json({ error: 'contact_suppressed' });
 
   const providerKey = voice.activeProvider();

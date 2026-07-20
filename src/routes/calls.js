@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const telephony = require('../telephony');
 const { body, S } = require('../validate');
-const { orgFilter } = require('../tenancy');
+const { orgFilter, ownedByOrg } = require('../tenancy');
 const { requirePerm } = require('../permissions');
 
 const router = express.Router();
@@ -25,7 +25,7 @@ router.get('/', (req, res) => {
   const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT c.*, v.name AS vendor_name, v.phone AS vendor_phone
-    FROM calls c JOIN vendors v ON v.id = c.vendor_id
+    FROM calls c JOIN vendors v ON v.id = c.vendor_id AND v.organization_id = @orgId
     ${where} ORDER BY c.created_at DESC LIMIT @limit
   `).all(params);
   res.json(rows);
@@ -34,6 +34,8 @@ router.get('/', (req, res) => {
 router.post('/', body(callBodySchema), (req, res) => {
   const { vendor_id, direction, disposition, outcome, duration_sec, notes, caller } = req.body;
   if (!vendor_id) return res.status(400).json({ error: 'vendor_id_required' });
+  // Only log a call against this org's own contact.
+  if (!ownedByOrg('vendors', vendor_id, req.orgId)) return res.status(404).json({ error: 'vendor_not_found' });
   const r = db.prepare(`
     INSERT INTO calls (organization_id, vendor_id, direction, disposition, outcome, duration_sec, notes, caller)
     VALUES (?, ?, COALESCE(?, 'out'), ?, ?, ?, ?, ?)

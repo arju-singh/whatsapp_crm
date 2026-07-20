@@ -15,7 +15,7 @@ const SECRET_KEYS = new Set(['resend_webhook_secret', 'mailgun_signing_key', 'an
 // Return settings for the UI with every secret redacted. The UI gets a
 // `secrets_set` map so it can show "configured / not configured" without ever
 // receiving the secret material itself.
-router.get('/', (req, res) => {
+router.get('/', requirePerm('settings.manage'), (req, res) => {
   const all = settings.getAll();
   const values = {};
   const secrets_set = {};
@@ -59,21 +59,24 @@ router.get('/export', requirePerm('settings.manage'), (req, res) => {
     settingsObj[row.key] = row.value;
   }
 
+  // Only the caller's own org data — never every tenant's templates/rules.
+  const orgId = req.orgId;
   const templates = db.prepare(
-    'SELECT name, body, category FROM templates ORDER BY id'
-  ).all();
+    'SELECT name, body, category FROM templates WHERE organization_id = ? AND deleted_at IS NULL ORDER BY id'
+  ).all(orgId);
   const email_templates = db.prepare(
-    'SELECT name, subject, body_html, body_text, category FROM email_templates ORDER BY id'
-  ).all();
+    'SELECT name, subject, body_html, body_text, category FROM email_templates WHERE organization_id = ? AND deleted_at IS NULL ORDER BY id'
+  ).all(orgId);
   const followup_rules = db.prepare(`
     SELECT r.name, r.trigger, r.delay_hours, r.max_attempts, r.active, r.stop_on_reply,
            COALESCE(r.channel, 'whatsapp') AS channel,
            CASE WHEN r.channel = 'email' THEN et.name ELSE t.name END AS template_name
     FROM followup_rules r
-    LEFT JOIN templates t ON t.id = r.template_id AND COALESCE(r.channel, 'whatsapp') = 'whatsapp'
-    LEFT JOIN email_templates et ON et.id = r.template_id AND r.channel = 'email'
+    LEFT JOIN templates t ON t.id = r.template_id AND COALESCE(r.channel, 'whatsapp') = 'whatsapp' AND t.organization_id = @orgId
+    LEFT JOIN email_templates et ON et.id = r.template_id AND r.channel = 'email' AND et.organization_id = @orgId
+    WHERE r.organization_id = @orgId AND r.deleted_at IS NULL
     ORDER BY r.id
-  `).all();
+  `).all({ orgId });
 
   const bundle = {
     version: EXPORT_VERSION,
@@ -100,6 +103,7 @@ router.post('/import', requirePerm('settings.manage'), (req, res) => {
     return res.status(400).json({ error: 'unsupported_version', supported: EXPORT_VERSION });
   }
   const mode = req.query.mode === 'replace' ? 'replace' : 'merge';
+  const orgId = req.orgId;
   const counts = { settings: 0, templates: 0, email_templates: 0, followup_rules: 0 };
   const skipped = { followup_rules_missing_template: [] };
 
@@ -116,54 +120,57 @@ router.post('/import', requirePerm('settings.manage'), (req, res) => {
       }
     }
 
+    // All template/rule writes below are scoped to the caller's org: replace
+    // only wipes THIS org's rows, name lookups match only within this org, and
+    // inserts stamp organization_id — so an import can never touch another tenant.
     if (Array.isArray(bundle.templates)) {
-      if (mode === 'replace') db.prepare('DELETE FROM templates').run();
-      const findByName = db.prepare('SELECT id FROM templates WHERE name = ?');
-      const ins = db.prepare('INSERT INTO templates (name, body, category) VALUES (?, ?, ?)');
-      const upd = db.prepare('UPDATE templates SET body = ?, category = ?, updated_at = ? WHERE name = ?');
+      if (mode === 'replace') db.prepare('DELETE FROM templates WHERE organization_id = ?').run(orgId);
+      const findByName = db.prepare('SELECT id FROM templates WHERE name = ? AND organization_id = ? AND deleted_at IS NULL');
+      const ins = db.prepare('INSERT INTO templates (organization_id, name, body, category) VALUES (?, ?, ?, ?)');
+      const upd = db.prepare('UPDATE templates SET body = ?, category = ?, updated_at = ? WHERE name = ? AND organization_id = ?');
       for (const t of bundle.templates) {
         if (!t || !t.name || !t.body) continue;
-        if (findByName.get(t.name)) upd.run(t.body, t.category || null, Date.now(), t.name);
-        else ins.run(t.name, t.body, t.category || null);
+        if (findByName.get(t.name, orgId)) upd.run(t.body, t.category || null, Date.now(), t.name, orgId);
+        else ins.run(orgId, t.name, t.body, t.category || null);
         counts.templates++;
       }
     }
 
     if (Array.isArray(bundle.email_templates)) {
-      if (mode === 'replace') db.prepare('DELETE FROM email_templates').run();
-      const findByName = db.prepare('SELECT id FROM email_templates WHERE name = ?');
+      if (mode === 'replace') db.prepare('DELETE FROM email_templates WHERE organization_id = ?').run(orgId);
+      const findByName = db.prepare('SELECT id FROM email_templates WHERE name = ? AND organization_id = ? AND deleted_at IS NULL');
       const ins = db.prepare(
-        'INSERT INTO email_templates (name, subject, body_html, body_text, category) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO email_templates (organization_id, name, subject, body_html, body_text, category) VALUES (?, ?, ?, ?, ?, ?)'
       );
       const upd = db.prepare(
-        'UPDATE email_templates SET subject = ?, body_html = ?, body_text = ?, category = ? WHERE name = ?'
+        'UPDATE email_templates SET subject = ?, body_html = ?, body_text = ?, category = ? WHERE name = ? AND organization_id = ?'
       );
       for (const t of bundle.email_templates) {
         if (!t || !t.name || !t.subject || !t.body_html) continue;
-        if (findByName.get(t.name)) upd.run(t.subject, t.body_html, t.body_text || null, t.category || null, t.name);
-        else ins.run(t.name, t.subject, t.body_html, t.body_text || null, t.category || null);
+        if (findByName.get(t.name, orgId)) upd.run(t.subject, t.body_html, t.body_text || null, t.category || null, t.name, orgId);
+        else ins.run(orgId, t.name, t.subject, t.body_html, t.body_text || null, t.category || null);
         counts.email_templates++;
       }
     }
 
     if (Array.isArray(bundle.followup_rules)) {
-      if (mode === 'replace') db.prepare('DELETE FROM followup_rules').run();
-      const findRule = db.prepare('SELECT id FROM followup_rules WHERE name = ?');
-      const findWaTpl = db.prepare('SELECT id FROM templates WHERE name = ?');
-      const findEmailTpl = db.prepare('SELECT id FROM email_templates WHERE name = ?');
+      if (mode === 'replace') db.prepare('DELETE FROM followup_rules WHERE organization_id = ?').run(orgId);
+      const findRule = db.prepare('SELECT id FROM followup_rules WHERE name = ? AND organization_id = ? AND deleted_at IS NULL');
+      const findWaTpl = db.prepare('SELECT id FROM templates WHERE name = ? AND organization_id = ? AND deleted_at IS NULL');
+      const findEmailTpl = db.prepare('SELECT id FROM email_templates WHERE name = ? AND organization_id = ? AND deleted_at IS NULL');
       const ins = db.prepare(`
-        INSERT INTO followup_rules (name, trigger, delay_hours, template_id, max_attempts, active, stop_on_reply, channel)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO followup_rules (organization_id, name, trigger, delay_hours, template_id, max_attempts, active, stop_on_reply, channel)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const upd = db.prepare(`
         UPDATE followup_rules
         SET trigger = ?, delay_hours = ?, template_id = ?, max_attempts = ?, active = ?, stop_on_reply = ?, channel = ?
-        WHERE name = ?
+        WHERE name = ? AND organization_id = ?
       `);
       for (const r of bundle.followup_rules) {
         if (!r || !r.name || !r.trigger || !r.delay_hours || !r.template_name) continue;
         const channel = r.channel === 'email' ? 'email' : 'whatsapp';
-        const tpl = channel === 'email' ? findEmailTpl.get(r.template_name) : findWaTpl.get(r.template_name);
+        const tpl = channel === 'email' ? findEmailTpl.get(r.template_name, orgId) : findWaTpl.get(r.template_name, orgId);
         if (!tpl) {
           skipped.followup_rules_missing_template.push({ rule: r.name, template: r.template_name, channel });
           continue;
@@ -175,8 +182,8 @@ router.post('/import', requirePerm('settings.manage'), (req, res) => {
           r.stop_on_reply == null ? 1 : r.stop_on_reply,
           channel,
         ];
-        if (findRule.get(r.name)) upd.run(...args, r.name);
-        else ins.run(r.name, ...args);
+        if (findRule.get(r.name, orgId)) upd.run(...args, r.name, orgId);
+        else ins.run(orgId, r.name, ...args);
         counts.followup_rules++;
       }
     }

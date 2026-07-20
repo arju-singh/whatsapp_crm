@@ -3,11 +3,12 @@ const db = require('../db');
 const wa = require('../whatsapp');
 const transports = require('../transports');
 const { body, S } = require('../validate');
-const { orgFilter } = require('../tenancy');
+const { orgFilter, ownedByOrg, ownedIds } = require('../tenancy');
+const { requirePerm } = require('../permissions');
 
 const router = express.Router();
 
-router.post('/test', body({
+router.post('/test', requirePerm('messages.send'), body({
   to_phone: S.string({ maxLength: 32 }),
   body: S.text(),
   template_id: S.int({ min: 1 }),
@@ -58,7 +59,7 @@ router.post('/preview', body({
   res.json({ rendered });
 });
 
-router.post('/send', body({
+router.post('/send', requirePerm('messages.send'), body({
   vendor_id: S.int({ min: 1 }),
   body: S.text(),
   template_id: S.int({ min: 1 }),
@@ -67,6 +68,11 @@ router.post('/send', body({
   const { vendor_id, body, template_id } = req.body;
   if (!vendor_id || (!body && !template_id)) {
     return res.status(400).json({ error: 'vendor_id and (body or template_id) required' });
+  }
+  // The target contact must belong to the caller's org — otherwise this would
+  // dispatch a WhatsApp message to another tenant's contact (cross-tenant send).
+  if (!ownedByOrg('vendors', vendor_id, req.orgId)) {
+    return res.status(404).json({ error: 'vendor_not_found' });
   }
   let messageBody = body;
   if (!messageBody && template_id) {
@@ -84,7 +90,7 @@ router.post('/send', body({
   res.json({ id: r.lastInsertRowid, queued: !future, scheduled_at: future ? scheduleMs : null });
 });
 
-router.post('/bulk', body({
+router.post('/bulk', requirePerm('messages.send'), body({
   vendor_ids: S.array({ of: S.int({ min: 1 }), maxItems: 100000 }),
   template_id: S.int({ min: 1 }),
   body: S.text(),
@@ -95,6 +101,12 @@ router.post('/bulk', body({
   if (!Array.isArray(vendor_ids) || !vendor_ids.length) {
     return res.status(400).json({ error: 'vendor_ids[] required' });
   }
+  // Strip any vendor_ids that aren't this org's contacts before building the
+  // campaign, so a bulk send can never fan out to another tenant's numbers.
+  const owned = ownedIds('vendors', vendor_ids, req.orgId);
+  const targetIds = vendor_ids.filter((id) => owned.has(Number(id)));
+  const skippedForeign = vendor_ids.length - targetIds.length;
+  if (!targetIds.length) return res.status(400).json({ error: 'no_valid_vendor_ids' });
   let messageBody = body;
   let tid = template_id || null;
   if (!messageBody && tid) {
@@ -115,7 +127,7 @@ router.post('/bulk', body({
     campaign_name || `Campaign ${new Date().toISOString()}`,
     tid,
     future ? 'scheduled' : 'running',
-    vendor_ids.length,
+    targetIds.length,
     future ? scheduleMs : Date.now(),
   );
   const campaignId = camp.lastInsertRowid;
@@ -137,9 +149,9 @@ router.post('/bulk', body({
     }
     return out;
   });
-  const ids = tx(vendor_ids);
+  const ids = tx(targetIds);
   if (!future) for (const id of ids) transports.sendMessage('whatsapp', id);
-  res.json({ campaign_id: campaignId, queued: !future ? ids.length : 0, scheduled: future ? ids.length : 0, scheduled_at: future ? scheduleMs : null });
+  res.json({ campaign_id: campaignId, queued: !future ? ids.length : 0, scheduled: future ? ids.length : 0, skipped_foreign: skippedForeign, scheduled_at: future ? scheduleMs : null });
 });
 
 router.get('/', (req, res) => {
@@ -152,7 +164,7 @@ router.get('/', (req, res) => {
   const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT m.*, v.name AS vendor_name, v.phone AS vendor_phone
-    FROM messages m JOIN vendors v ON v.id = m.vendor_id
+    FROM messages m JOIN vendors v ON v.id = m.vendor_id AND v.organization_id = @orgId
     ${where} ORDER BY m.created_at DESC LIMIT @limit
   `).all({ ...params, limit: Number(limit) });
   res.json(rows);
@@ -166,9 +178,9 @@ router.get('/stats/by-template', (req, res) => {
       SUM(CASE WHEN m.direction='out' AND m.status IN ('sent','delivered','read') THEN 1 ELSE 0 END) AS delivered_or_better,
       SUM(CASE WHEN m.direction='out' AND m.status IN ('delivered','read') THEN 1 ELSE 0 END) AS delivered,
       SUM(CASE WHEN m.direction='out' AND m.status='read' THEN 1 ELSE 0 END) AS read_count,
-      (SELECT COUNT(*) FROM messages m2 WHERE m2.direction='in' AND m2.vendor_id IN (
+      (SELECT COUNT(*) FROM messages m2 WHERE m2.direction='in' AND m2.organization_id = @orgId AND m2.vendor_id IN (
         SELECT DISTINCT m3.vendor_id FROM messages m3 JOIN campaigns c2 ON c2.id = m3.campaign_id
-        WHERE c2.template_id = t.id
+        WHERE c2.template_id = t.id AND m3.organization_id = @orgId AND c2.organization_id = @orgId
       )) AS replies
     FROM templates t
     LEFT JOIN campaigns c ON c.template_id = t.id

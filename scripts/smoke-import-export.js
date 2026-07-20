@@ -13,6 +13,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use((req, _res, next) => {
   req.user = { id: 1, name: 'smoke', role: 'super_admin' };
   req.orgRole = 'super_admin';
+  req.orgId = 1; // tenantContext resolves this in the real app; export/import is org-scoped
   next();
 });
 app.use('/api/settings', require('../src/routes/settings'));

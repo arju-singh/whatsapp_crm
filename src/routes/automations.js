@@ -59,7 +59,7 @@ router.post('/:id/run', body({
   const a = db.prepare(`SELECT * FROM automations WHERE id = @id AND ${orgFilter()}`).get({ id: req.params.id, orgId: req.orgId });
   if (!a) return res.status(404).json({ error: 'not_found' });
   // Allow off automations to be tested manually; just don't fire on event
-  const ctx = {};
+  const ctx = { orgId: req.orgId };
   if (req.body && req.body.vendor_id) {
     ctx.vendor = db.prepare(`SELECT * FROM vendors WHERE id = @id AND ${orgFilter()}`).get({ id: req.body.vendor_id, orgId: req.orgId });
   }

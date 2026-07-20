@@ -1,4 +1,18 @@
 require('./src/loadenv'); // load .env before any module reads process.env
+require('./src/async-routes'); // forward async route errors to the error handler (before any router is built)
+
+// Keep the whole CRM/API alive when a background library (notably whatsapp-web.js
+// + puppeteer) throws an async error we can't attach a catch to. WhatsApp Web
+// periodically reloads its page, which makes an in-flight `Client.inject`
+// reject with "Execution context was destroyed…"; unguarded, that killed the
+// entire server. Log loudly and stay up — the WA layer has its own re-init/retry.
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal-guard] unhandledRejection:', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[fatal-guard] uncaughtException:', err && err.stack ? err.stack : err);
+});
+
 const express = require('express');
 const path = require('path');
 const db = require('./src/db');
@@ -10,6 +24,7 @@ const { makeAuthMiddleware, loadSession, parseCookies, SESSION_COOKIE } = requir
 const { requirePerm } = require('./src/permissions');
 const securityHeaders = require('./src/security');
 const { tenantContext } = require('./src/tenancy');
+const logger = require('./src/logger');
 const modules = require('./src/modules/registry');
 
 const app = express();
@@ -17,6 +32,13 @@ const app = express();
 // Conservative security headers (CSP, nosniff, frame-ancestors, HSTS in prod) on
 // every response. Set first so even error/static responses carry them.
 app.use(securityHeaders());
+
+// Correlate every request with an id (echoed as X-Request-Id, exposed as req.id)
+// and log one structured line per API request on completion. Mounted before the
+// auth gate so auth-rejected (401) requests are logged too; org/user are read at
+// completion, so they're populated for requests that reach the tenant middleware.
+app.use(logger.requestId);
+app.use(logger.requestLogger);
 
 // Trust the reverse proxy in front of us (nginx, Cloudflare, a PaaS router) so
 // req.ip and req.protocol reflect the real client instead of the proxy. The hop
@@ -53,7 +75,8 @@ app.get('/cookies', (req, res) => res.sendFile(path.join(__dirname, 'public', 'c
 // SEO: robots.txt + sitemap.xml served dynamically so absolute URLs match the
 // real host (or PUBLIC_BASE_URL when set behind a proxy).
 function siteBase(req) {
-  return process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  // Prefer a trusted base; for public SEO files a host fallback is acceptable.
+  return require('./src/baseurl').trustedBaseUrl(req) || `${req.protocol}://${req.get('host')}`;
 }
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain').send(
@@ -101,6 +124,49 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'landing.html'));
 });
 
+// Unauthenticated liveness/readiness probe for load balancers, Docker
+// healthchecks, and uptime monitors. Reports process liveness plus DB and
+// WhatsApp-link status. Returns 200 as long as the process + DB are up (WA being
+// unlinked is degraded, not down). Placed before the auth gate on purpose.
+app.get('/healthz', (req, res) => {
+  let dbOk = false;
+  try { db.prepare('SELECT 1').get(); dbOk = true; } catch (_) {}
+  let wa = { linked: false };
+  try { const s = require('./src/whatsapp').getStatus(); wa = { linked: !!s.ready }; } catch (_) {}
+  const ok = dbOk;
+  res.status(ok ? 200 : 503).json({
+    status: ok ? 'ok' : 'degraded',
+    db: dbOk ? 'up' : 'down',
+    whatsapp: wa.linked ? 'linked' : 'unlinked',
+    uptime_s: Math.round(process.uptime()),
+  });
+});
+
+// Readiness probe — stricter than /healthz: reports whether the app can actually
+// serve traffic (DB writable + queue driver connected + messaging provider linked
+// where required). Orchestrators gate rollout/traffic on this; 503 = not ready.
+app.get('/readyz', (req, res) => {
+  const checks = {};
+  try { db.prepare('SELECT 1').get(); checks.db = true; } catch (_) { checks.db = false; }
+  try { checks.queue = require('./src/queue').isReady(); } catch (_) { checks.queue = false; }
+  try { checks.whatsapp = !!require('./src/whatsapp').getStatus().ready; } catch (_) { checks.whatsapp = false; }
+  // WhatsApp being unlinked is "degraded", not "not ready" — DB + queue are the
+  // hard requirements for the API to accept work.
+  const ready = checks.db && checks.queue;
+  res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', checks });
+});
+
+// Prometheus metrics exposition. Placed before the auth gate so a scraper needs
+// no session. If METRICS_TOKEN is set, require it (?token= or X-Metrics-Token).
+app.get('/metrics', (req, res) => {
+  const token = process.env.METRICS_TOKEN;
+  if (token) {
+    const provided = String(req.get('x-metrics-token') || req.query.token || '');
+    if (provided !== token) return res.status(401).type('text/plain').send('unauthorized');
+  }
+  res.set('Content-Type', 'text/plain; version=0.0.4').send(require('./src/metrics').render());
+});
+
 // Auth gate — runs for everything except whitelisted public paths.
 // /api/auth/login,signup,logout are exempt (in PUBLIC_PATHS);
 // /api/auth/me + /api/auth/change-password go through and get req.user populated.
@@ -133,23 +199,29 @@ const waAdmin = [waHeavyLimiter, requirePerm('whatsapp.admin')];
 app.use('/api/auth', require('./src/routes/auth'));
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/api/wa/status', (req, res) => res.json(wa.getStatus()));
-app.get('/api/wa/qr', (req, res) => {
+// The WhatsApp session/QR/diagnostics all concern the single shared WA resource
+// and expose message content + linking material, so they are admin-only. Without
+// requirePerm here, ANY authenticated user (even a viewer, any org) could read
+// the QR and the most-recent inbound messages of the whole platform.
+app.get('/api/wa/status', requirePerm('whatsapp.admin'), (req, res) => res.json(wa.getStatus()));
+app.get('/api/wa/qr', requirePerm('whatsapp.admin'), (req, res) => {
   const dataUrl = wa.getQrDataUrl();
   if (!dataUrl) return res.status(404).json({ error: 'no_qr' });
   res.json({ dataUrl });
 });
 // Diagnostics: combine link state, recent inbound counts, and the most recent
-// 5 inbound messages so you can confirm replies are actually landing.
-app.get('/api/wa/diagnostics', (req, res) => {
+// 5 inbound messages so you can confirm replies are actually landing. Scoped to
+// the caller's active org so an admin of one tenant can't read another's messages.
+app.get('/api/wa/diagnostics', requirePerm('whatsapp.admin'), (req, res) => {
   const db = require('./src/db');
   const status = wa.getStatus();
+  const orgId = req.orgId;
   const last5 = db.prepare(`
     SELECT m.id, m.body, m.created_at, m.wa_message_id, v.name AS vendor_name, v.phone
     FROM messages m JOIN vendors v ON v.id = m.vendor_id
-    WHERE m.direction = 'in'
+    WHERE m.direction = 'in' AND m.organization_id = ?
     ORDER BY m.created_at DESC LIMIT 5
-  `).all();
+  `).all(orgId);
   const counts = db.prepare(`
     SELECT
       SUM(CASE WHEN direction='in' THEN 1 ELSE 0 END) AS inbound_total,
@@ -157,8 +229,8 @@ app.get('/api/wa/diagnostics', (req, res) => {
       SUM(CASE WHEN direction='out' AND status='sent'      THEN 1 ELSE 0 END) AS sent,
       SUM(CASE WHEN direction='out' AND status='delivered' THEN 1 ELSE 0 END) AS delivered,
       SUM(CASE WHEN direction='out' AND status='read'      THEN 1 ELSE 0 END) AS read_count
-    FROM messages
-  `).get(Date.now() - 24 * 3600 * 1000);
+    FROM messages WHERE organization_id = ?
+  `).get(Date.now() - 24 * 3600 * 1000, orgId);
   res.json({
     linked: status.ready,
     pushname: status.info?.pushname || null,
@@ -230,6 +302,12 @@ app.post('/api/wa/webhook', (req, res) => {
     return res.status(400).json({ error: 'bad_payload' });
   }
 });
+// WhatsApp Cloud API webhook (official Meta provider). Machine-to-machine; it
+// verifies Meta's token (GET) and the X-Hub-Signature-256 HMAC (POST) in-route,
+// and is whitelisted in PUBLIC_PATHS. Mounted regardless of WA_PROVIDER so the
+// endpoint can be verified with Meta before cutover. Shares ingestInbound +
+// applyStatusUpdate with the webjs path.
+app.use('/api/wa/cloud/webhook', require('./src/wa/webhook'));
 app.post('/api/wa/reinit', waAdmin, async (req, res) => {
   try {
     wa.safeReinit('manual reconnect via API');
@@ -330,9 +408,22 @@ app.get('/unsubscribe', rateLimit({ bucket: 'unsubscribe', max: 30, windowMs: 10
   const e = req.query.e != null ? String(req.query.e).slice(0, 254) : undefined;
   const p = req.query.p != null ? String(req.query.p).replace(/\D/g, '').slice(0, 20) : undefined;
   if (e || p) {
-    require('./src/routes/suppressions').addSuppression({
-      phone: p, email: e, reason: 'email_unsubscribe', source: 'public_link',
-    });
+    // Public link carries no org, so resolve which org(s) actually hold this
+    // contact and suppress in each of those (never a shared/default org). This
+    // honours the unsubscribe everywhere the person is known without writing into
+    // any tenant that doesn't have them.
+    const supp = require('./src/routes/suppressions');
+    const orgIds = new Set();
+    if (e) {
+      for (const r of db.prepare('SELECT DISTINCT organization_id o FROM emails WHERE LOWER(to_email) = LOWER(?)').all(e)) orgIds.add(r.o);
+      for (const r of db.prepare('SELECT DISTINCT organization_id o FROM vendors WHERE LOWER(email) = LOWER(?) AND deleted_at IS NULL').all(e)) orgIds.add(r.o);
+    }
+    if (p) {
+      for (const r of db.prepare('SELECT DISTINCT organization_id o FROM vendors WHERE phone = ? AND deleted_at IS NULL').all(p)) orgIds.add(r.o);
+    }
+    for (const o of orgIds) {
+      supp.addSuppression({ orgId: o, phone: p, email: e, reason: 'email_unsubscribe', source: 'public_link' });
+    }
   }
   res.set('Content-Type', 'text/html').send(`
     <!doctype html><html><head><title>Unsubscribed</title>
@@ -348,7 +439,7 @@ app.get('/unsubscribe', rateLimit({ bucket: 'unsubscribe', max: 30, windowMs: 10
 // message to avoid disclosing stack/SQL/internal details (OWASP A09).
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error('[api] error', err);
+  logger.error('api_error', { req: req.id, method: req.method, path: req.path, err: err && err.message, stack: err && err.stack });
   // Body-parser raises this when JSON is malformed or exceeds the size limit.
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'payload_too_large' });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid_json' });
@@ -357,8 +448,39 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[server] dashboard at http://localhost:${PORT}`);
   wa.init();
   scheduler.start();
 });
+// Boot-time listen failures (e.g. EADDRINUSE) must not throw unhandled.
+server.on('error', (err) => {
+  console.error('[server] listen error:', err.message);
+  process.exit(1);
+});
+
+// Graceful shutdown: on SIGTERM/SIGINT (docker stop, Ctrl-C) stop accepting new
+// connections, stop the cron scheduler, tear down the WhatsApp client/Chromium,
+// and close the DB so nothing is left half-written or orphaned. Falls back to a
+// hard exit if cleanup hangs.
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[server] ${signal} received — shutting down gracefully`);
+  const hardKill = setTimeout(() => {
+    console.error('[server] cleanup timed out — forcing exit');
+    process.exit(1);
+  }, 10_000);
+  hardKill.unref();
+  try { server.close(); } catch (_) {}
+  try { if (scheduler.stop) scheduler.stop(); } catch (_) {}
+  // Drain in-flight jobs / close workers + Redis before tearing down the DB.
+  try { await require('./src/queue').close({ timeoutMs: 8_000 }); } catch (e) { console.error('[server] queue close error:', e.message); }
+  try { if (wa.shutdown) await wa.shutdown(); } catch (e) { console.error('[server] wa shutdown error:', e.message); }
+  try { db.close(); } catch (_) {}
+  clearTimeout(hardKill);
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

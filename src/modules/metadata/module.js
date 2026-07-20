@@ -346,6 +346,10 @@ module.exports = {
       const userId = Number(req.body && req.body.user_id);
       const accLevel = req.body && req.body.access === 'write' ? 'write' : 'read';
       if (!Number.isInteger(userId)) return res.status(400).json({ error: 'user_id_required' });
+      // The share target must be a member of this org — never share a record with
+      // a user who belongs only to another tenant.
+      const isMember = db.prepare('SELECT 1 FROM memberships WHERE user_id = ? AND organization_id = ?').get(userId, req.orgId);
+      if (!isMember) return res.status(400).json({ error: 'user_not_in_org' });
       db.prepare(`
         INSERT INTO record_shares (organization_id, record_id, user_id, access) VALUES (@orgId, @rid, @uid, @acc)
         ON CONFLICT(record_id, user_id) DO UPDATE SET access = @acc, deleted_at = NULL

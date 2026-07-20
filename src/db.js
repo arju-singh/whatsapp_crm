@@ -5,9 +5,18 @@ const fs = require('fs');
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, 'crm.db'));
+// DB_PATH lets tests (and alternate deployments) point at an isolated database
+// file instead of the live data/crm.db. Defaults to the real DB when unset.
+const dbFile = process.env.DB_PATH || path.join(dataDir, 'crm.db');
+const db = new Database(dbFile);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+// better-sqlite3 is synchronous and SQLite allows a single writer at a time.
+// Without a busy_timeout a write that collides with the per-minute scheduler
+// cron (or a concurrent request) throws SQLITE_BUSY immediately. Wait up to 5s
+// for the lock instead of failing the request. NORMAL is safe+faster under WAL.
+db.pragma('busy_timeout = 5000');
+db.pragma('synchronous = NORMAL');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS vendors (
@@ -661,6 +670,9 @@ ensureColumn('users', 'verify_token', 'TEXT');
 ensureColumn('users', 'verify_sent_at', 'INTEGER');
 ensureColumn('users', 'reset_token', 'TEXT');
 ensureColumn('users', 'reset_expires_at', 'INTEGER');
+// Per-account brute-force lockout (defense in depth on top of IP rate limiting).
+ensureColumn('users', 'failed_login_count', 'INTEGER DEFAULT 0');
+ensureColumn('users', 'lockout_until', 'INTEGER');
 // Billing (Stripe). plan: free|pro|... ; subscription_status mirrors Stripe.
 ensureColumn('users', 'plan', "TEXT DEFAULT 'free'");
 ensureColumn('users', 'stripe_customer_id', 'TEXT');

@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { body, S } = require('../validate');
-const { orgFilter } = require('../tenancy');
+const { orgFilter, fkError } = require('../tenancy');
 
 const router = express.Router();
 
@@ -18,8 +18,8 @@ router.get('/', (req, res) => {
       c.name AS company_name, c.logo AS company_logo, c.color AS company_color,
       v.name AS requester_name
     FROM tickets t
-    LEFT JOIN companies c ON c.id = t.company_id
-    LEFT JOIN vendors v ON v.id = t.requester_id
+    LEFT JOIN companies c ON c.id = t.company_id AND c.organization_id = @orgId AND c.deleted_at IS NULL
+    LEFT JOIN vendors v ON v.id = t.requester_id AND v.organization_id = @orgId AND v.deleted_at IS NULL
     ${where}
     ORDER BY
       CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'med' THEN 2 ELSE 3 END,
@@ -51,6 +51,9 @@ router.post('/', body({
 }), (req, res) => {
   const { subject, body, company_id, requester_id, priority, sla, assignee } = req.body;
   if (!subject) return res.status(400).json({ error: 'subject_required' });
+  const fkErr = fkError(req.orgId, 'companies', company_id, 'company_id')
+    || fkError(req.orgId, 'vendors', requester_id, 'requester_id');
+  if (fkErr) return res.status(400).json({ error: fkErr });
   const r = db.prepare(`
     INSERT INTO tickets (organization_id, subject, body, company_id, requester_id, priority, sla, assignee)
     VALUES (?, ?, ?, ?, ?, COALESCE(?, 'med'), ?, ?)
@@ -68,6 +71,9 @@ router.put('/:id', body({
   sla: S.string({ maxLength: 60 }),
   assignee: S.string({ maxLength: 200 }),
 }), (req, res) => {
+  const fkErr = fkError(req.orgId, 'companies', req.body.company_id, 'company_id')
+    || fkError(req.orgId, 'vendors', req.body.requester_id, 'requester_id');
+  if (fkErr) return res.status(400).json({ error: fkErr });
   const allowed = ['subject', 'body', 'company_id', 'requester_id', 'priority', 'status', 'sla', 'assignee'];
   const sets = [];
   const params = { id: req.params.id, orgId: req.orgId, updated_at: Date.now() };

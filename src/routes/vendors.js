@@ -15,13 +15,34 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 const DEFAULT_COUNTRY_CODE = process.env.DEFAULT_COUNTRY_CODE || '91';
 const DEFAULT_REGION = process.env.DEFAULT_REGION || 'IN';
 
-function normalizePhone(p) {
-  let digits = String(p || '').replace(/\D/g, '');
-  if (!digits) return '';
-  digits = digits.replace(/^0+/, '');
-  if (digits.length === 10) digits = DEFAULT_COUNTRY_CODE + digits;
-  return digits;
+// CSV/Formula injection defence (OWASP): a cell whose text starts with = + - @
+// or a leading tab/CR is interpreted as a formula by Excel/Sheets/LibreOffice
+// when the export is opened, so a contact named `=cmd|'/c calc'!A1` would execute.
+// Prefix any such value with a single quote so it is treated as literal text.
+function neutralizeFormula(v) {
+  if (v == null) return v;
+  const s = String(v);
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
 }
+
+// Prototype-pollution defense for imported spreadsheet/CSV rows: a crafted file
+// with a `__proto__` / `constructor` / `prototype` header could otherwise taint
+// object prototypes when the row is read. Copy only safe own keys onto a
+// null-prototype object. (xlsx@0.18.5 has known proto-pollution/ReDoS with no npm
+// fix — this narrows our exposure; replacing the parser remains recommended.)
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+function sanitizeRecord(r) {
+  const out = Object.create(null);
+  if (r && typeof r === 'object') {
+    for (const k of Object.keys(r)) {
+      if (DANGEROUS_KEYS.has(k)) continue;
+      out[k] = r[k];
+    }
+  }
+  return out;
+}
+
+const normalizePhone = (p) => require('../phone').normalizePhone(p, DEFAULT_COUNTRY_CODE);
 
 function validatePhone(p) {
   const normalized = normalizePhone(p);
@@ -40,7 +61,14 @@ function validatePhone(p) {
 }
 
 router.get('/', (req, res) => {
-  const { q, status, category, limit = 1000000, offset = 0 } = req.query;
+  const { q, status, category, limit, offset = 0 } = req.query;
+  // Hard-cap the page size so a single request can never pull ~1M rows into
+  // memory (the previous default). Default is generous (2000) so the current
+  // non-paginated UI keeps showing every contact; max 5000. NOTE: once a tenant
+  // exceeds ~2000 contacts the list needs real frontend pagination (offset is
+  // already supported here) — tracked as a follow-up.
+  const safeLimit = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
   const filters = [orgFilter()];
   const params = { orgId: req.orgId };
   if (q) {
@@ -53,7 +81,7 @@ router.get('/', (req, res) => {
   const rows = db.prepare(`
     SELECT * FROM vendors ${where}
     ORDER BY updated_at DESC LIMIT @limit OFFSET @offset
-  `).all({ ...params, limit: Number(limit), offset: Number(offset) });
+  `).all({ ...params, limit: safeLimit, offset: safeOffset });
   const total = db.prepare(`SELECT COUNT(*) c FROM vendors ${where}`).get(params).c;
   res.json({ rows, total });
 });
@@ -71,7 +99,7 @@ router.get('/export.csv', (req, res) => {
     'last_contacted_at', 'last_replied_at', 'total_sent', 'total_replied', 'created_at'];
   const esc = (v) => {
     if (v == null) return '';
-    const s = String(v);
+    const s = neutralizeFormula(String(v));
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const fmtTs = (v) => v ? new Date(v).toISOString() : '';
@@ -203,7 +231,7 @@ router.get('/template.csv', (req, res) => {
   const cols = tpl.columns;
   const esc = (v) => {
     if (v == null) return '';
-    const s = String(v);
+    const s = neutralizeFormula(String(v));
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [cols.join(',')];
@@ -227,7 +255,7 @@ router.get('/export.xlsx', (req, res) => {
     'last_contacted_at', 'last_replied_at', 'total_sent', 'total_replied', 'created_at'];
   const tsCols = new Set(['last_contacted_at', 'last_replied_at', 'created_at']);
   const fmtTs = (v) => v ? new Date(v).toISOString() : '';
-  const data = [cols, ...rows.map((r) => cols.map((c) => tsCols.has(c) ? fmtTs(r[c]) : (r[c] == null ? '' : r[c])))];
+  const data = [cols, ...rows.map((r) => cols.map((c) => tsCols.has(c) ? fmtTs(r[c]) : (r[c] == null ? '' : neutralizeFormula(r[c]))))];
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Vendors');
@@ -292,7 +320,7 @@ router.post('/', body(vendorBodySchema), (req, res) => {
     );
     try {
       const created = db.prepare('SELECT * FROM vendors WHERE id = ?').get(r.lastInsertRowid);
-      require('../automation').fire('contact_created', { vendor: created });
+      require('../automation').fire('contact_created', { vendor: created, orgId: req.orgId });
     } catch (_) {}
     res.json({ id: r.lastInsertRowid });
   } catch (e) {
@@ -342,10 +370,12 @@ router.post('/import', upload.single('file'), (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: isExcel ? 'excel_parse_failed' : 'csv_parse_failed', detail: e.message });
   }
+  // Strip prototype-polluting keys before any row is read.
+  records = Array.isArray(records) ? records.map(sanitizeRecord) : [];
   const insert = db.prepare(`
     INSERT INTO vendors (organization_id, name, phone, company, email, category, tags, notes, title, address, city, hours)
     VALUES (@orgId, @name, @phone, @company, @email, @category, @tags, @notes, @title, @address, @city, @hours)
-    ON CONFLICT(phone) DO UPDATE SET
+    ON CONFLICT(organization_id, phone) DO UPDATE SET
       name = excluded.name,
       company = COALESCE(excluded.company, vendors.company),
       email = COALESCE(excluded.email, vendors.email),

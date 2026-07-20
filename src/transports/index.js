@@ -50,13 +50,22 @@ function get(channel) {
   return t;
 }
 
-// Route a persisted outbound row to its channel. `rowId` is the id in that
-// channel's table (messages for whatsapp, emails for email).
+/**
+ * Route a persisted outbound row to its channel for delivery.
+ * @param {'whatsapp'|'email'} channel target transport
+ * @param {number} rowId id in that channel's table (messages for whatsapp, emails for email)
+ * @param {{priority?: boolean}} [opts] delivery hints (e.g. jump the send queue)
+ * @returns {*} the transport's deliver() result
+ */
 function sendMessage(channel, rowId, opts = {}) {
   return get(channel).deliver(rowId, opts);
 }
 
-// Is a channel currently able to send (linked / configured)?
+/**
+ * Is a channel currently able to send (linked / configured)?
+ * @param {'whatsapp'|'email'} channel
+ * @returns {boolean}
+ */
 function isReady(channel) {
   return get(channel).isReady();
 }

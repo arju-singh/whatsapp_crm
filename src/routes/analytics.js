@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const rateLimit = require('../ratelimit');
+const { requirePerm } = require('../permissions');
 
 const router = express.Router();
 
@@ -44,8 +45,10 @@ router.post('/collect', rateLimit({ bucket: 'analytics', max: 240, windowMs: 60 
   res.json({ ok: true, stored });
 });
 
-// Authed summary — totals + top pages + daily series for the last N days.
-router.get('/summary', (req, res) => {
+// Platform-wide traffic summary. analytics_events is global platform telemetry
+// (no per-org column), so this is gated to workspace admins rather than any
+// authenticated user — page paths/event names can embed per-tenant identifiers.
+router.get('/summary', requirePerm('settings.manage'), (req, res) => {
   const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
   const since = Date.now() - days * 24 * 3600 * 1000;
   const totals = db.prepare(`

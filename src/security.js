@@ -5,10 +5,16 @@
 // remote avatars over https.
 function securityHeaders() {
   const isProd = process.env.NODE_ENV === 'production';
+  // Development serves JSX compiled in-browser by Babel, which requires
+  // 'unsafe-eval'. The production build ships a precompiled bundle, so eval is
+  // dropped in prod (removes the most dangerous XSS→in-page-exec vector).
+  // 'unsafe-inline' remains for inline bootstrap; move to nonces to remove it.
+  const scriptSrc = isProd
+    ? "script-src 'self' 'unsafe-inline' https://unpkg.com"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com";
   const csp = [
     "default-src 'self'",
-    // In-browser Babel + React are loaded from unpkg; Babel needs eval to compile JSX.
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com",
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",

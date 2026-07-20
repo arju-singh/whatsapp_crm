@@ -89,6 +89,8 @@ function makeAuthMiddleware(db) {
     '/api/voice/webhook',
     // WhatsApp bridge inbound webhook (WA_WEBHOOK_SECRET / loopback verified inside the route)
     '/api/wa/webhook',
+    // WhatsApp Cloud API webhook (Meta) — GET verify token + POST X-Hub-Signature-256 in-route
+    '/api/wa/cloud/webhook',
   ]);
   const PUBLIC_PREFIXES = [
     '/avatars/', '/styles', '/fonts',

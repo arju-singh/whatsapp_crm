@@ -1,9 +1,18 @@
 const express = require('express');
 const db = require('../db');
 const { body, S } = require('../validate');
-const { orgFilter } = require('../tenancy');
+const { orgFilter, ownedByOrg } = require('../tenancy');
 
 const router = express.Router();
+
+// A rule's template_id points at `templates` (WhatsApp) or `email_templates`
+// (email) depending on channel. Validate it belongs to the caller's org so a
+// rule can't be bound to another tenant's template.
+function templateFkError(orgId, templateId, channel) {
+  if (templateId == null) return null;
+  const table = channel === 'email' ? 'email_templates' : 'templates';
+  return ownedByOrg(table, templateId, orgId) ? null : 'invalid_template_id';
+}
 
 const ruleBodySchema = {
   name: S.string({ maxLength: 200 }),
@@ -38,6 +47,8 @@ router.post('/rules', body(ruleBodySchema), (req, res) => {
     return res.status(400).json({ error: 'trigger must be no_reply or after_send' });
   }
   const ch = channel === 'email' ? 'email' : 'whatsapp';
+  const fkErr = templateFkError(req.orgId, template_id, ch);
+  if (fkErr) return res.status(400).json({ error: fkErr });
   const r = db.prepare(`
     INSERT INTO followup_rules (organization_id, name, trigger, delay_hours, template_id, max_attempts, stop_on_reply, active, channel)
     VALUES (?, ?, ?, ?, ?, COALESCE(?, 3), COALESCE(?, 1), COALESCE(?, 1), ?)
@@ -46,6 +57,19 @@ router.post('/rules', body(ruleBodySchema), (req, res) => {
 });
 
 router.put('/rules/:id', body(ruleBodySchema), (req, res) => {
+  // If template_id is being changed, validate it against the rule's channel
+  // (the new channel if supplied, otherwise the existing one).
+  if (req.body.template_id !== undefined) {
+    let ch = req.body.channel;
+    if (ch === undefined) {
+      const existing = db.prepare(`SELECT channel FROM followup_rules WHERE id = @id AND ${orgFilter()}`)
+        .get({ id: req.params.id, orgId: req.orgId });
+      if (!existing) return res.status(404).json({ error: 'not_found' });
+      ch = existing.channel;
+    }
+    const fkErr = templateFkError(req.orgId, req.body.template_id, ch === 'email' ? 'email' : 'whatsapp');
+    if (fkErr) return res.status(400).json({ error: fkErr });
+  }
   const allowed = ['name', 'trigger', 'delay_hours', 'template_id', 'max_attempts', 'stop_on_reply', 'active', 'channel'];
   const sets = [];
   const params = { id: req.params.id, orgId: req.orgId };

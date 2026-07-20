@@ -7,6 +7,7 @@ const suppressions = require('./suppressions');
 const settings = require('../settings');
 const { body, S } = require('../validate');
 const { orgFilter } = require('../tenancy');
+const { requirePerm } = require('../permissions');
 
 const router = express.Router();
 
@@ -52,7 +53,7 @@ router.delete('/templates/:id', (req, res) => {
 });
 
 // ----- Send -----
-router.post('/send', body({
+router.post('/send', requirePerm('email.send'), body({
   vendor_id: S.int({ min: 1 }),
   to_email: S.email({ maxLength: 254 }),
   template_id: S.int({ min: 1 }),
@@ -69,7 +70,7 @@ router.post('/send', body({
     toAddr = toAddr || v.email;
   }
   if (!toAddr) return res.status(400).json({ error: 'to_email_or_vendor_with_email_required' });
-  if (suppressions.isSuppressed({ email: toAddr })) {
+  if (suppressions.isSuppressed(req.orgId, { email: toAddr })) {
     return res.status(409).json({ error: 'suppressed' });
   }
 
@@ -91,7 +92,7 @@ router.post('/send', body({
   res.json({ id: r.lastInsertRowid, queued: true });
 });
 
-router.post('/bulk', body({
+router.post('/bulk', requirePerm('email.send'), body({
   vendor_ids: S.array({ of: S.int({ min: 1 }), maxItems: 10000 }),
   template_id: S.int({ min: 1 }),
   subject: S.string({ maxLength: 300 }),
@@ -128,7 +129,7 @@ router.post('/bulk', body({
     for (const vid of ids) {
       const v = db.prepare(`SELECT id, email FROM vendors WHERE id = @id AND ${orgFilter()}`).get({ id: vid, orgId: req.orgId });
       if (!v || !v.email) { skippedNoEmail++; continue; }
-      if (suppressions.isSuppressed({ email: v.email })) { skippedSuppressed++; continue; }
+      if (suppressions.isSuppressed(req.orgId, { email: v.email })) { skippedSuppressed++; continue; }
       const r = insert.run(req.orgId, v.id, campaignId, tid, v.email, subj, html, text || null);
       transports.sendMessage('email', r.lastInsertRowid);
       queued++;
@@ -148,7 +149,7 @@ router.get('/', (req, res) => {
   const where = `WHERE ${filters.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT e.*, v.name AS vendor_name FROM emails e
-    LEFT JOIN vendors v ON v.id = e.vendor_id
+    LEFT JOIN vendors v ON v.id = e.vendor_id AND v.organization_id = @orgId AND v.deleted_at IS NULL
     ${where} ORDER BY e.created_at DESC LIMIT @limit
   `).all({ ...params, limit: Number(limit) });
   res.json(rows);
@@ -191,13 +192,16 @@ function applyWebhookEvent({ event, to_email, message_id, reason }) {
   }
   if (isBounce) {
     if (row) db.prepare(`UPDATE emails SET status='bounced', error=? WHERE id=?`).run(reason || 'bounced', row.id);
-    suppressions.addSuppression({ email: to_email || row?.to_email, reason: 'bounce', source: 'webhook' });
+    // Attribute the suppression to the org that actually sent this email (from the
+    // matched row). No row → no org → addSuppression no-ops, so a webhook can never
+    // create a suppression in the wrong (or default) tenant.
+    suppressions.addSuppression({ orgId: row?.organization_id, email: to_email || row?.to_email, reason: 'bounce', source: 'webhook' });
     db.prepare(`INSERT INTO audit_log (event, vendor_id, email_id, detail) VALUES ('email_bounce', ?, ?, ?)`)
       .run(row?.vendor_id || null, row?.id || null, (reason || '').slice(0, 200));
   }
   if (isComplaint) {
     if (row) db.prepare(`UPDATE emails SET status='complained', error=? WHERE id=?`).run(reason || 'complaint', row.id);
-    suppressions.addSuppression({ email: to_email || row?.to_email, reason: 'complaint', source: 'webhook' });
+    suppressions.addSuppression({ orgId: row?.organization_id, email: to_email || row?.to_email, reason: 'complaint', source: 'webhook' });
     db.prepare(`INSERT INTO audit_log (event, vendor_id, email_id, detail) VALUES ('email_complaint', ?, ?, ?)`)
       .run(row?.vendor_id || null, row?.id || null, (reason || '').slice(0, 200));
   }
@@ -350,8 +354,12 @@ router.post('/webhook/mailgun', (req, res) => {
 
 // 1×1 transparent gif for open tracking
 const PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
-router.get('/track/:id.gif', (req, res) => {
-  const id = parseInt(req.params.id, 10);
+router.get('/track/:token.gif', (req, res) => {
+  // Record an open ONLY when the signed token verifies. Prevents anyone from
+  // enumerating sequential ids to tamper with other tenants' open counts — the
+  // token is an HMAC of the email id, so it can't be forged or guessed. An old
+  // or bogus token simply returns the pixel without recording (safe degradation).
+  const id = email.verifyEmailTrackToken(req.params.token);
   if (id) {
     const now = Date.now();
     db.prepare(`

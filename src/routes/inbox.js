@@ -4,6 +4,7 @@ const wa = require('../whatsapp');
 const transports = require('../transports');
 const { body, S } = require('../validate');
 const { orgFilter } = require('../tenancy');
+const { requirePerm } = require('../permissions');
 
 const router = express.Router();
 
@@ -53,7 +54,7 @@ router.get('/:vendorId', (req, res) => {
 });
 
 // Quick-reply via WhatsApp
-router.post('/:vendorId/reply', body({
+router.post('/:vendorId/reply', requirePerm('messages.send'), body({
   body: S.text(),
 }), (req, res) => {
   const { body } = req.body;

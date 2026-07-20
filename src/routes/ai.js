@@ -14,7 +14,7 @@ const aiLimiter = rateLimit({ bucket: 'ai', max: 30, windowMs: 5 * 60 * 1000, ke
 router.post('/ask', body({ query: S.string({ maxLength: 2000 }) }), (req, res) => {
   const q = String(req.body && req.body.query || '').toLowerCase();
   if (!q) return res.status(400).json({ error: 'query_required' });
-  const reply = answer(q);
+  const reply = answer(q, req.orgId);
   res.json({ reply });
 });
 
@@ -23,7 +23,7 @@ router.post('/draft-reply', aiLimiter, body({ vendor_id: S.int({ min: 1 }) }), a
   const { vendor_id } = req.body || {};
   if (!vendor_id) return res.status(400).json({ error: 'vendor_id_required' });
   try {
-    const r = await require('../ai-agent').draftReply(vendor_id);
+    const r = await require('../ai-agent').draftReply(vendor_id, req.orgId);
     res.json(r);
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -32,22 +32,22 @@ router.post('/draft-reply', aiLimiter, body({ vendor_id: S.int({ min: 1 }) }), a
 
 router.get('/drafts', (req, res) => {
   const { status, vendor_id } = req.query;
-  res.json(require('../ai-agent').listDrafts({ status: status || 'pending', vendor_id }));
+  res.json(require('../ai-agent').listDrafts({ status: status || 'pending', vendor_id, orgId: req.orgId }));
 });
 
 router.post('/drafts/:id/approve', body({}), (req, res) => {
-  try { res.json(require('../ai-agent').approveDraft(req.params.id)); }
+  try { res.json(require('../ai-agent').approveDraft(req.params.id, req.orgId)); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 router.post('/drafts/:id/dismiss', body({}), (req, res) => {
-  res.json(require('../ai-agent').dismissDraft(req.params.id));
+  res.json(require('../ai-agent').dismissDraft(req.params.id, req.orgId));
 });
 
 router.put('/drafts/:id', body({ body: S.text({ maxLength: 10000 }) }), (req, res) => {
   const { body } = req.body || {};
   if (!body) return res.status(400).json({ error: 'body_required' });
-  res.json(require('../ai-agent').editDraft(req.params.id, body));
+  res.json(require('../ai-agent').editDraft(req.params.id, body, req.orgId));
 });
 
 router.get('/health', (req, res) => {
@@ -63,7 +63,7 @@ router.get('/health', (req, res) => {
 });
 
 router.get('/insights', (req, res) => {
-  res.json({ insights: buildInsights() });
+  res.json({ insights: buildInsights(req.orgId) });
 });
 
 router.get('/dashboard-summary', (req, res) => {
@@ -93,16 +93,16 @@ router.get('/dashboard-summary', (req, res) => {
   });
 });
 
-function buildInsights() {
+function buildInsights(orgId) {
   const insights = [];
   const hot = db.prepare(`
     SELECT d.id, d.name, d.score, d.amount, c.name AS company
     FROM deals d
-    LEFT JOIN companies c ON c.id = d.company_id
-    LEFT JOIN stages s ON s.id = d.stage_id
-    WHERE d.score >= 85 AND s.is_won = 0 AND s.is_lost = 0
+    LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = @orgId AND c.deleted_at IS NULL
+    LEFT JOIN stages s ON s.id = d.stage_id AND s.organization_id = @orgId
+    WHERE d.score >= 85 AND s.is_won = 0 AND s.is_lost = 0 AND ${orgFilter('d')}
     ORDER BY d.score DESC LIMIT 1
-  `).get();
+  `).get({ orgId });
   if (hot) insights.push({
     title: `${hot.company} is heating up`,
     body: `${hot.name} has a win-score of ${hot.score}. Suggest pushing close earlier this period.`,
@@ -111,11 +111,11 @@ function buildInsights() {
   const stale = db.prepare(`
     SELECT d.id, d.name, c.name AS company, d.updated_at
     FROM deals d
-    LEFT JOIN companies c ON c.id = d.company_id
-    LEFT JOIN stages s ON s.id = d.stage_id
-    WHERE s.is_won = 0 AND s.is_lost = 0 AND d.updated_at < ?
+    LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = @orgId AND c.deleted_at IS NULL
+    LEFT JOIN stages s ON s.id = d.stage_id AND s.organization_id = @orgId
+    WHERE s.is_won = 0 AND s.is_lost = 0 AND d.updated_at < @cutoff AND ${orgFilter('d')}
     ORDER BY d.updated_at ASC LIMIT 1
-  `).get(Date.now() - 14 * 86400000);
+  `).get({ orgId, cutoff: Date.now() - 14 * 86400000 });
   if (stale) insights.push({
     title: `${stale.company} churn risk`,
     body: `${stale.name} hasn't moved in 14+ days. Recommend a check-in this week.`,
@@ -124,10 +124,10 @@ function buildInsights() {
   const expansion = db.prepare(`
     SELECT d.id, d.name, c.name AS company
     FROM deals d
-    LEFT JOIN companies c ON c.id = d.company_id
-    WHERE d.source = 'Expansion'
+    LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = @orgId AND c.deleted_at IS NULL
+    WHERE d.source = 'Expansion' AND ${orgFilter('d')}
     ORDER BY d.created_at DESC LIMIT 1
-  `).get();
+  `).get({ orgId });
   if (expansion) insights.push({
     title: `${expansion.company} expansion signal`,
     body: `${expansion.name} is an active expansion opportunity. Worth aligning with the champion.`,
@@ -136,15 +136,15 @@ function buildInsights() {
   return insights;
 }
 
-function answer(q) {
+function answer(q, orgId) {
   if (q.includes('pipeline') || q.includes('summary')) {
     const open = db.prepare(`
       SELECT d.*, c.name AS company FROM deals d
-      LEFT JOIN companies c ON c.id = d.company_id
-      LEFT JOIN stages s ON s.id = d.stage_id
-      WHERE s.is_won = 0 AND s.is_lost = 0
+      LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = @orgId AND c.deleted_at IS NULL
+      LEFT JOIN stages s ON s.id = d.stage_id AND s.organization_id = @orgId
+      WHERE s.is_won = 0 AND s.is_lost = 0 AND ${orgFilter('d')}
       ORDER BY d.score DESC LIMIT 3
-    `).all();
+    `).all({ orgId });
     const total = open.reduce((s, d) => s + d.amount, 0);
     const top = open.slice(0, 3).map((d) => `${d.company} (${fmt(d.amount)}, ${d.score}%)`).join(', ');
     return `📊 You have ${open.length} top-scoring deals on the radar. Top 3: ${top}. Total open value across these: ${fmt(total)}.`;
@@ -152,11 +152,11 @@ function answer(q) {
   if (q.includes('risk') || q.includes('churn')) {
     const stale = db.prepare(`
       SELECT d.name, c.name AS company FROM deals d
-      LEFT JOIN companies c ON c.id = d.company_id
-      LEFT JOIN stages s ON s.id = d.stage_id
-      WHERE s.is_won = 0 AND s.is_lost = 0 AND d.updated_at < ?
+      LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = @orgId AND c.deleted_at IS NULL
+      LEFT JOIN stages s ON s.id = d.stage_id AND s.organization_id = @orgId
+      WHERE s.is_won = 0 AND s.is_lost = 0 AND d.updated_at < @cutoff AND ${orgFilter('d')}
       ORDER BY d.updated_at ASC LIMIT 3
-    `).all(Date.now() - 14 * 86400000);
+    `).all({ orgId, cutoff: Date.now() - 14 * 86400000 });
     if (!stale.length) return 'Nothing concerning in the pipeline right now — every open deal has activity in the last 14 days.';
     return '⚠️ Watch list: ' + stale.map((d) => `${d.company} (${d.name})`).join(', ') + '. Recommend a check-in.';
   }
@@ -166,9 +166,9 @@ function answer(q) {
   if (q.includes('touch') || q.includes('haven') || q.includes('cold')) {
     const cold = db.prepare(`
       SELECT name, last_contacted_at FROM vendors
-      WHERE last_contacted_at IS NOT NULL AND last_contacted_at < ?
+      WHERE last_contacted_at IS NOT NULL AND last_contacted_at < @cutoff AND ${orgFilter()}
       ORDER BY last_contacted_at ASC LIMIT 5
-    `).all(Date.now() - 14 * 86400000);
+    `).all({ orgId, cutoff: Date.now() - 14 * 86400000 });
     if (!cold.length) return 'You\'re fully caught up — no contacts have gone quiet for more than 14 days.';
     return 'Contacts gone quiet (>14d): ' + cold.map((c) => c.name).join(', ');
   }

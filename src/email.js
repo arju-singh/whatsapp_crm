@@ -1,6 +1,35 @@
+const crypto = require('crypto');
 const db = require('./db');
 const settings = require('./settings');
 const suppressions = require('./routes/suppressions');
+
+// --- Open-tracking token ---------------------------------------------------
+// The open-tracking pixel used to embed the raw sequential email id, so anyone
+// could enumerate /api/email/track/1.gif..N.gif and tamper with ANY tenant's
+// open counts (a cross-tenant integrity write, since the pixel is unauthenticated).
+// We now sign the id with a per-instance secret: the pixel URL carries `<id>.<sig>`
+// and the route only records an open when the signature verifies. Unforgeable, so
+// ids can't be enumerated; no DB/schema change required.
+function trackSecret() {
+  let s = settings.get('email_track_secret');
+  if (!s) { s = crypto.randomBytes(32).toString('hex'); settings.set('email_track_secret', s); }
+  return s;
+}
+function emailTrackToken(id) {
+  const sig = crypto.createHmac('sha256', trackSecret()).update(String(id)).digest('hex').slice(0, 20);
+  return `${id}.${sig}`;
+}
+// Returns the numeric email id if the token's signature is valid, else null.
+function verifyEmailTrackToken(token) {
+  const m = /^(\d+)\.([a-f0-9]{20})$/.exec(String(token || ''));
+  if (!m) return null;
+  const id = Number(m[1]);
+  const expect = crypto.createHmac('sha256', trackSecret()).update(String(id)).digest('hex').slice(0, 20);
+  const a = Buffer.from(m[2]);
+  const b = Buffer.from(expect);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  return id;
+}
 
 let nodemailer;
 try { nodemailer = require('nodemailer'); }
@@ -52,7 +81,7 @@ function renderTemplate(s, vars) {
 
 function instrumentHtml(html, emailId, toEmail) {
   const trackingPixel = PUBLIC_BASE
-    ? `<img src="${PUBLIC_BASE}/api/email/track/${emailId}.gif" width="1" height="1" alt="" style="display:none"/>`
+    ? `<img src="${PUBLIC_BASE}/api/email/track/${emailTrackToken(emailId)}.gif" width="1" height="1" alt="" style="display:none"/>`
     : '';
   const unsubUrl = PUBLIC_BASE
     ? `${PUBLIC_BASE}/unsubscribe?e=${encodeURIComponent(toEmail)}`
@@ -91,7 +120,7 @@ async function sendOne(emailId) {
   `).run(emailId);
   if (claim.changes === 0) return;
 
-  if (suppressions.isSuppressed({ email: row.to_email })) {
+  if (suppressions.isSuppressed(row.organization_id, { email: row.to_email })) {
     db.prepare(`UPDATE emails SET status='cancelled', error='suppressed' WHERE id=?`).run(emailId);
     db.prepare(`INSERT INTO audit_log (event, vendor_id, email_id, detail) VALUES ('blocked_suppressed', ?, ?, 'email')`)
       .run(row.vendor_id || null, emailId);
@@ -180,4 +209,4 @@ async function sendRaw({ to, subject, html, text, replyTo }) {
   return { ok: true, messageId: info.messageId || null };
 }
 
-module.exports = { sendOne, processQueue, enqueue, isConfigured, renderTemplate, sendRaw, PUBLIC_BASE };
+module.exports = { sendOne, processQueue, enqueue, isConfigured, renderTemplate, sendRaw, PUBLIC_BASE, emailTrackToken, verifyEmailTrackToken };

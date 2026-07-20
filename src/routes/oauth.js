@@ -12,15 +12,17 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 // you flip this off to keep manual admin approval.
 const AUTO_ACTIVATE = String(process.env.OAUTH_AUTO_ACTIVATE ?? 'true').toLowerCase() !== 'false';
 
+const { trustedBaseUrl } = require('../baseurl');
 function isConfigured() { return !!(CLIENT_ID && CLIENT_SECRET); }
-function publicBase(req) {
-  return process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+function redirectUri(req) {
+  const base = trustedBaseUrl(req);
+  return base ? `${base}/api/auth/google/callback` : null;
 }
-function redirectUri(req) { return `${publicBase(req)}/api/auth/google/callback`; }
 
 // Step 1: bounce the user to Google's consent screen with a CSRF state cookie.
 router.get('/google', (req, res) => {
   if (!isConfigured()) return res.status(503).json({ error: 'oauth_not_configured' });
+  if (!redirectUri(req)) return res.status(503).json({ error: 'base_url_not_configured', hint: 'set PUBLIC_BASE_URL' });
   const state = crypto.randomBytes(16).toString('hex');
   res.setHeader('Set-Cookie',
     `oauth_state=${state}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);
@@ -78,6 +80,13 @@ router.get('/google/callback', async (req, res) => {
         VALUES (?, ?, ?, '', 'user', ?, 1)
       `).run(prof.name || email, placeholderPhone, email, AUTO_ACTIVATE ? 1 : 0);
       user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(r.lastInsertRowid);
+      // Own isolated org + owner membership (tenant-isolation, S1) — OAuth users
+      // must never default into the shared org either.
+      try {
+        require('../tenancy').provisionOrgForUser(user.id, `${prof.name || email}'s Workspace`, 'owner');
+      } catch (e) {
+        console.error('[oauth] failed to provision org on signup:', e.message);
+      }
       db.prepare(`INSERT INTO audit_log (event, detail) VALUES ('oauth_signup', ?)`)
         .run(JSON.stringify({ user_id: user.id, provider: 'google', email }).slice(0, 500));
     } else if (!user.email_verified) {
